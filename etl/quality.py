@@ -158,9 +158,12 @@ def apply_row_rules(conn, run_id, src) -> dict:
             failed = conn.execute(sql.SQL(
                 'WITH bad AS (DELETE FROM {land} r WHERE {pred} RETURNING r.*) '
                 'INSERT INTO etl."RejectedRow"("RunID","RuleID","SourceTable","SourceKey","Payload","RejectedAt") '
-                'SELECT %s, %s, %s, b.{key}, to_jsonb(b), clock_timestamp() FROM bad b').format(
+                'SELECT %s, %s, %s, b.{key}, to_jsonb(b), clock_timestamp() FROM bad b '
+                # an orphan read again while its parent is still rejected is already in the dead letter
+                'WHERE NOT EXISTS (SELECT 1 FROM etl."RejectedRow" o WHERE o."SourceTable" = %s AND o."RuleID" = %s '
+                '                  AND o."SourceKey" = b.{key} AND o."ResolvedRunID" IS NULL)').format(
                     land=land, pred=pred, key=sql.Identifier(src.key)),
-                (run_id, rule["RuleID"], src.table)).rowcount
+                (run_id, rule["RuleID"], src.table, src.table, rule["RuleID"])).rowcount
         else:
             failed = conn.execute(sql.SQL("SELECT count(*) AS n FROM {land} r WHERE {pred}").format(
                 land=land, pred=pred)).fetchone()["n"]

@@ -2,7 +2,8 @@
 
 Split by time, never at random: the model is tested on inquiries that arrived after the ones it
 learnt from, as it will be used. A candidate is promoted to production only if it beats a
-simple baseline clearly and is not worse than the model already in production."""
+simple baseline clearly and, once a model is in production, is not worse than it on at least
+MIN_UNSEEN test inquiries that model never saw; until there are that many, production is kept."""
 import logging
 import pickle
 from datetime import date, timedelta
@@ -25,6 +26,7 @@ log = logging.getLogger("ml")
 GAP_DAYS, TEST_DAYS = 90, 180     # test = inquiries received 270 to 90 days before the as-of date
 MIN_GAIN_OVER_BASELINE = 0.05     # AUC points over the baseline
 MAX_LOSS_VS_PRODUCTION = 0.01     # a refit on newer data may be this much lower and still replace it
+MIN_UNSEEN = 50                   # test inquiries production never saw, needed before it can be replaced
 DRIFT_NUM = ["LeadDays", "ResponseMinutes", "CoupleMsgs24h"]
 
 
@@ -71,6 +73,7 @@ def production(conn):
 
 
 def train(conn, asof: date, seed=0) -> dict:
+    F.require_fresh(conn, asof)
     ts = F.training_set(conn, asof)
     d = pd.to_datetime(ts.InquiryDate)
     test_end = pd.Timestamp(asof - timedelta(days=GAP_DAYS))
@@ -89,17 +92,21 @@ def train(conn, asof: date, seed=0) -> dict:
     name = max(results, key=lambda n: results[n]["auc"])
     chosen = results[name]
 
-    # Production was refit on everything up to its own as-of date, so compare the two only on
-    # test inquiries it never saw; until there are enough of those, the baseline gate decides.
-    prod, vs_prod = production(conn), None
+    # Production was refit on every inquiry up to GAP_DAYS before its own as-of date, so the two are
+    # compared only on test inquiries after that; production is replaced only on that evidence.
+    prod, vs_prod, unseen_n = production(conn), None, 0
     if prod:
-        unseen = te & (d >= pd.Timestamp(prod["AsOfDate"])).values
-        if unseen.sum() >= 50 and len(set(y[unseen])) == 2:
-            vs_prod = {"rows": int(unseen.sum()),
+        unseen = te & (d >= pd.Timestamp(prod["AsOfDate"] - timedelta(days=GAP_DAYS))).values
+        unseen_n = int(unseen.sum())
+        if unseen_n >= MIN_UNSEEN and len(set(y[unseen])) == 2:
+            vs_prod = {"rows": unseen_n,
                        "candidate": round(roc_auc_score(y[unseen], fitted[name].predict_proba(X[unseen])[:, 1]), 3),
                        "production": round(roc_auc_score(y[unseen], pickle.loads(prod["Artifact"]).predict_proba(X[unseen])[:, 1]), 3)}
     if chosen["auc"] < baseline["auc"] + MIN_GAIN_OVER_BASELINE:
         status, why = "rejected", f"AUC {chosen['auc']} is not {MIN_GAIN_OVER_BASELINE} above the baseline ({baseline['auc']})"
+    elif prod and not vs_prod:
+        status, why = "rejected", (f"kept production v{prod['Version']}: only {unseen_n} test inquiries it never saw, "
+                                   f"{MIN_UNSEEN} with both outcomes needed to compare")
     elif vs_prod and vs_prod["candidate"] < vs_prod["production"] - MAX_LOSS_VS_PRODUCTION:
         status, why = "rejected", (f"AUC {vs_prod['candidate']} is below production v{prod['Version']} ({vs_prod['production']}) "
                                    f"on {vs_prod['rows']} test rows it never saw")
@@ -107,7 +114,7 @@ def train(conn, asof: date, seed=0) -> dict:
         status = "production"
         why = (f"AUC {chosen['auc']} vs baseline {baseline['auc']}"
                + (f"; vs production v{prod['Version']}: {vs_prod['candidate']} vs {vs_prod['production']} on {vs_prod['rows']} unseen rows"
-                  if vs_prod else f"; production v{prod['Version']} has no unseen test rows to compare" if prod else "")
+                  if vs_prod else "")
                + "; refit on train + test")
 
     final = candidates(seed)[name].fit(X[tr | te], y[tr | te])      # the production model uses all labelled history

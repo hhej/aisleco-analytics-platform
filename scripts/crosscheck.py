@@ -65,6 +65,26 @@ def compare_with_gold(zones, cfg):
     return checks, fails
 
 
+def facts(cfg, dsn=None):
+    """The three facts with surrogate keys replaced by business keys, for comparisons."""
+    out = {}
+    # surrogate keys depend on load order, so compare business keys instead
+    for name, sql, key in [
+        ("FactInquiry", 'SELECT f.*, p."PackageID" AS ind_pkg, e."EmployeeID" AS responder FROM mart.v_inquiry f '
+                        'JOIN dim."DimPackage" p ON p."PackageKey"=f."IndicativePackageKey" '
+                        'JOIN dim."DimEmployee" e ON e."EmployeeKey"=f."FirstResponderEmployeeKey"', ["InquiryID"]),
+        ("FactEventBooking", 'SELECT f.*, p."PackageID" AS pkg FROM fact."FactEventBooking" f '
+                             'JOIN dim."DimPackage" p USING ("PackageKey")', ["EventID"]),
+        ("FactEmployeeWeeklyWorkload", 'SELECT w.*, e."EmployeeID" FROM fact."FactEmployeeWeeklyWorkload" w '
+                                       'JOIN dim."DimEmployee" e USING ("EmployeeKey")', ["EmployeeID", "WeekStartDateKey"])]:
+        with db.connect(dsn or cfg.dw_dsn, cfg) as conn:
+            df = pd.DataFrame(conn.execute(sql).fetchall())
+        df = df.drop(columns=[c for c in df.columns if c in ("InquiryFactKey", "EventFactKey", "EmployeeWeekKey", "EmployeeKey", "OutcomeKey",
+                                                               "IndicativePackageKey", "FirstResponderEmployeeKey", "PackageKey")])
+        out[name] = df.set_index(key).sort_index()
+    return out
+
+
 if __name__ == "__main__":
     zones = sys.argv[1] if len(sys.argv) > 1 else "data/sim/zones_v3"
     cfg = Config()

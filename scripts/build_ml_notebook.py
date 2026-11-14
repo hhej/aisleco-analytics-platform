@@ -182,7 +182,9 @@ md("""
 4. **Evaluation** on the test window: AUC (overall and by inquiry age), PR-AUC, and the share of all bookings
    found in the top 20% of scores (what Sales gets if it calls one couple in five).
 5. **Validation gate**: the best candidate is promoted only if its AUC is at least 0.05 above the baseline, and
-   not below the production model on test inquiries that model never saw.
+   not below the production model on at least 50 test inquiries that model never saw. The production model
+   learnt from every inquiry up to 90 days before its own as-of date, so after a weekly retrain only a week of
+   new inquiries is unseen: production is then kept, and is replaced about once a month, each time on evidence.
 6. **Registry**: the result, promoted or not, is written to `ml."ModelVersion"` with its data windows, metrics,
    decision, the training distributions (for drift checks) and the model itself. The promoted model is refit on
    train + test.
@@ -342,7 +344,7 @@ md("""
 |---|---|---|
 | 0: manual | Scripts and notebooks, manual hand-over | Passed: nothing here is a manual step |
 | 1: ML pipeline automation | Automated training pipeline, continuous training on new data, feature store, metadata store and model registry, validation before deployment, monitoring that triggers retraining | **Yes**: weekly and drift-triggered training, `feature` schema, `ml.ModelVersion`, the gate, `ml.DriftCheck` + `etl.Alert` |
-| 2: CI/CD of the pipeline | Each code change to the pipeline built, tested and deployed automatically | Partly: 38 automated tests (5 for the model) run with one command, but nothing runs them on each push yet. A GitHub Actions workflow running `pytest` against a PostgreSQL service would be the next step |
+| 2: CI/CD of the pipeline | Each code change to the pipeline built, tested and deployed automatically | Partly: 41 automated tests (7 for the model) run with one command, but nothing runs them on each push yet. A GitHub Actions workflow running `pytest` against a PostgreSQL service would be the next step |
 
 Known limits: descriptive fields (channel, budget, package, wedding date) are read as they are now, not as they
 were on past dates, because the CRM keeps no history for them; event times (messages, consultation, quote,

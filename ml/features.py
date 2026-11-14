@@ -45,9 +45,22 @@ def training_set(conn, asof: date) -> pd.DataFrame:
     return f.merge(lab[["InquiryID", "InquiryDate", "Booked"]], on="InquiryID")
 
 
+class StaleWarehouse(RuntimeError):
+    pass
+
+
+def require_fresh(conn, asof: date):
+    """Refuse to build features or train on a warehouse the ETL has not loaded up to the as-of
+    date (a failed or skipped run), instead of silently using yesterday's data."""
+    last = conn.execute('SELECT max("AsOfDate") AS d FROM etl."Run" WHERE "Status" = \'success\'').fetchone()["d"]
+    if last is None or last < asof:
+        raise StaleWarehouse(f"warehouse loaded only to {last}: no successful ETL run as of {asof}, nothing done")
+
+
 def materialise(conn, asof: date) -> int:
     """Store the features of every inquiry open at the start of the as-of date in the offline
     store (the function drops the closed ones). Re-running a day replaces that day."""
+    require_fresh(conn, asof)
     t = _midnight(asof)
     conn.execute('DELETE FROM feature."InquiryFeatures" WHERE "AsOf" = %s', (t,))
     return conn.execute(

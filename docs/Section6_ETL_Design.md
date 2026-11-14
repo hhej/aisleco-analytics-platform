@@ -75,7 +75,9 @@ of every run is recorded in `etl.DqResult`.
 A rejected row is not lost. When someone corrects it in the CRM, its `UpdatedAt` moves, the next run
 extracts it again, and the dead-letter row is marked with the run that finally loaded it. A rejected
 parent takes its children with it: an assignment that points to a rejected event is rejected too, so
-the hours never land in the warehouse without their wedding date.
+the hours never land in the warehouse without their wedding date. Such orphans are read again on every
+run, because fixing the parent does not change the child's `UpdatedAt`; once the parent loads, the
+child loads with it (found by the end-to-end replay, Section 7).
 
 ## 6.4 Transform and load
 
@@ -89,7 +91,7 @@ should hold now (in schema `work`), and a generic load step then compares it wit
 | DimPackage, DimEmployee | Package price versions; employee + role | Type 1 upsert by OLTP ID; keys never change |
 | DimInquiryOutcome + FactInquiry | Response time and first responder from ChatMessage (bot ignored), outcome and furthest stage, stage days, budget midpoint. New outcome combinations are added to DimInquiryOutcome in the same step (keys never change) | **Merge with change detection** by InquiryID: insert new, update only rows whose values changed, delete rows whose inquiry is gone |
 | FactEventBooking | Staff count, planning / wedding-day / total hours per wedding | Merge with change detection by EventID |
-| FactEmployeeWeeklyWorkload | Hours split (≤ 12 h wedding day, rest spread over the planning weeks), employee × week grid, overtime, active events (utilization is calculated in `mart.v_weekly_workload`) | Merge by employee and week **from the as-of week onwards only**. Weeks that have ended are inserted if missing and otherwise frozen (Section 5.4). |
+| FactEmployeeWeeklyWorkload | Hours split (≤ 12 h wedding day, rest spread over the planning weeks), employee × week grid, overtime, active events (utilization is calculated in `mart.v_weekly_workload`) | Merge by employee and week **from the week of the run's last data day onwards only** (the day before the as-of date: the Monday 02:00 run still writes the week that ended on Sunday). Weeks that have ended are inserted if missing and otherwise frozen (Section 5.4). |
 
 Merging instead of truncating means surrogate keys stay the same from run to run, and each step reports
 how many rows it inserted, updated, deleted or left unchanged. For the weekly fact the load also counts
@@ -150,7 +152,7 @@ fails anywhere therefore leaves the next run to pick up exactly where this one s
 | Performance: burst | At 0.47 M rows of history, up to 326,000 changes committed as 1,000-row CRM transactions, no cap | 7.5 s for 326,000 changes (≈ 43,000 changes/s) |
 | Performance: overflow | The same 326,000 changes with the batch cap of 100,000 and the production 5-minute overlap | Drained in 4 runs of 3–5 s; queue 226 k → 126 k → 26 k → 0 |
 
-The 38 automated tests (5 of them for the conversion model of Section 7) are in `tests/` and run with `pytest`. The performance numbers come from
+The 41 automated tests (7 of them for the conversion model of Section 7) are in `tests/` and run with `pytest`. The performance numbers come from
 `scripts/benchmark.py --stress` on a laptop (results and chart in `docs/stress_test.txt` / `.png`).
 **Capacity, as designed:** one run must finish within 2 minutes. Measured: an incremental run stays
 within it up to at least 6.5 M CRM rows of history, and one run absorbs at least 326,000 changes in

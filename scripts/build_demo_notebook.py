@@ -40,7 +40,7 @@ business rule itself. Two PostgreSQL databases are used:
 | Error handling | Connection retry with backoff, step log `etl.StepRun`, dead-letter queue `etl.RejectedRow`, alerts `etl.Alert` | 7 to 10 |
 | Recovery | Resume skips the steps that succeeded; running again changes nothing | 9, 11 |
 | Capacity | Batch cap of 100,000 changes per run; the rest waits in the backlog queue in the CRM | 13 |
-| Testing | 38 automated tests (5 for the conversion model), a 76,770-value source-to-target check, a stress test against the 2-minute target | 12 to 14 |
+| Testing | 41 automated tests (7 for the conversion model), a 76,770-value source-to-target check, a stress test against the 2-minute target | 12 to 14 |
 | Business problems | Problem 1 (seasonal demand and capacity): staffing decisions run by run. Problem 2 (high inquiry, low conversion): inquiries followed run by run. The KPIs of both on three simulated business years | 5, 6, 12 |
 | ETL or ELT | Python extracts and lands the data; the transformations run as SQL inside the warehouse, so strictly ELT | 1 |
 """)
@@ -369,7 +369,8 @@ week()
 md("""
 20 Jan 2027: Nina moves to a 36-hour week. In run 4 (as of 1 Feb) the week of 8 Feb is divided by 36,
 while weeks that have already ended keep 44 (history without SCD Type 2, Section 5.4). The weekly load
-rewrites only the rows from the as-of week onwards (`updated: 2` below) and leaves the ended weeks alone.
+rewrites only the rows from the week of its last data day (31 Jan) onwards (`updated: 3` below) and leaves the
+ended weeks alone.
 This is intended, so no alert is raised.
 """)
 
@@ -591,7 +592,7 @@ Fah's assignment grows from 16 h to 20 h. The `ETL_FAIL_AT` test hook makes `fac
 just before it commits. The step's transaction is rolled back, so nothing is half-written. `resume` skips
 the steps that already succeeded and finishes the run.
 
-The extra planning hours also fall in four January weeks that have already ended. Those rows stay frozen
+The extra planning hours also fall in three January weeks that have already ended. Those rows stay frozen
 and the run reports them as a late change. The warning appears twice in the log below because the failed
 attempt raised it too; that attempt was rolled back, so `etl.Alert` holds it once. Later runs record the
 same count in `etl.DqResult` without alerting again.

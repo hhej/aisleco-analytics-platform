@@ -68,7 +68,7 @@ def test_closed_inquiries_are_not_features(dw):
 
 def test_training_gate_and_registry(dw, monkeypatch):
     """Scenario: Train as of 1 Oct 2025 twice with the same seed, then once more with a gate the model cannot pass.
-    Expected: Same metrics both times and the model beats the baseline; the second replaces the first in production; the impossible gate gives 'rejected' and production is unchanged."""
+    Expected: Same metrics both times and the model beats the baseline; the second is not promoted, because production has no test inquiries it never saw to compare on; the impossible gate gives 'rejected'; production stays v1."""
     with conn(dw) as c:
         c.execute('TRUNCATE ml."InquiryScore", ml."DriftCheck", ml."ModelVersion" RESTART IDENTITY CASCADE')
         r1 = train.train(c, date(2025, 10, 1))
@@ -78,8 +78,23 @@ def test_training_gate_and_registry(dw, monkeypatch):
         status = {r["Version"]: r["Status"] for r in c.execute('SELECT "Version","Status" FROM ml."ModelVersion"').fetchall()}
         c.commit()
     assert r1["test"] == r2["test"] and r1["test"]["auc"] >= r1["baseline"]["auc"] + 0.05
-    assert status == {1: "retired", 2: "production", 3: "rejected"}
+    assert r2["status"] == "rejected" and r2["decision"].startswith("kept production v1: only 0 ")
+    assert status == {1: "production", 2: "rejected", 3: "rejected"}
     assert r3["status"] == "rejected"
+
+
+def test_production_is_replaced_only_after_a_fair_comparison(dw):
+    """Scenario: Production trained as of 1 Oct 2025; a new model trained as of 1 Feb 2026, when four months of inquiries have outcomes that production never learnt from.
+    Expected: Both models are scored on at least 50 of those inquiries, the decision quotes the comparison, and exactly one model is in production afterwards."""
+    with conn(dw) as c:
+        c.execute('TRUNCATE ml."InquiryScore", ml."DriftCheck", ml."ModelVersion" RESTART IDENTITY CASCADE')
+        train.train(c, date(2025, 10, 1))
+        r = train.train(c, date(2026, 2, 1))
+        n_prod = c.execute('SELECT count(*) AS n FROM ml."ModelVersion" WHERE "Status" = \'production\'').fetchone()["n"]
+        c.commit()
+    assert r["vs_production"]["rows"] >= train.MIN_UNSEEN
+    assert "production v1" in r["decision"] and str(r["vs_production"]["rows"]) in r["decision"]
+    assert n_prod == 1
 
 
 def test_daily_scoring_covers_every_open_inquiry(dw):
@@ -111,3 +126,17 @@ def test_drift_check_flags_the_2026_campaign(dw):
     assert before["PSI Channel"][1] == "ok"
     assert after["PSI Channel"][1] == "alert"
     assert alerts
+
+
+def test_ml_refuses_a_warehouse_the_etl_did_not_load(dw):
+    """Scenario: The ETL run for 16 Jan 2027 fails (or never ran); the warehouse is loaded to 15 Jan.
+    Expected: Features and training for 16 Jan refuse with StaleWarehouse; 15 Jan and earlier still work."""
+    with conn(dw) as c:
+        c.execute('INSERT INTO etl."Run"("AsOfDate","Mode","TriggeredBy","Status","StartedAt") '
+                  "VALUES ('2027-01-16','incremental','test','failed',now())")
+        with pytest.raises(F.StaleWarehouse):
+            F.materialise(c, date(2027, 1, 16))
+        with pytest.raises(F.StaleWarehouse):
+            train.train(c, date(2027, 1, 16))
+        assert F.materialise(c, date(2027, 1, 15)) > 0
+        c.rollback()

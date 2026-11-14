@@ -69,8 +69,8 @@ def test_bad_row_goes_to_dead_letter_and_comes_back_when_fixed(base):
 
 
 def test_rejected_parent_takes_its_children_with_it(base):
-    """Scenario: T rejects a parent: a new event without a wedding date, with one assignment.
-    Expected: Event rejected (event_missing_dates) and its assignment too (assignment_orphan); the run still succeeds."""
+    """Scenario: T rejects a parent: a new event without a wedding date, with one assignment. A run with nothing fixed, then the date is entered in the CRM.
+    Expected: Event rejected (event_missing_dates) and its assignment too (assignment_orphan); the run still succeeds. The retried orphan is not dead-lettered twice. Once the event is fixed, both are loaded, although the assignment itself never changed."""
     cfg = base
     crm_exec('''INSERT INTO master."Customer"("CustomerID") VALUES (50);
                 INSERT INTO transaction."Event" VALUES (50,50,NULL,3,NULL,100,'Low',90000,'Confirmed','2026-12-01');
@@ -79,6 +79,12 @@ def test_rejected_parent_takes_its_children_with_it(base):
     rules = sorted(r["RuleName"] for r in q(cfg, 'SELECT r."RuleName" FROM etl."RejectedRow" d JOIN etl."DqRule" r USING ("RuleID")'))
     assert rules == ["assignment_orphan", "event_missing_dates"]
     assert last_run(cfg)["Status"] == "success"
+    pipeline.run(cfg, ASOF)                                        # nothing fixed yet: the orphan is retried, not duplicated
+    assert q(cfg, 'SELECT count(*) AS n FROM etl."RejectedRow"')[0]["n"] == 2
+    crm_exec('UPDATE transaction."Event" SET "EventDate" = \'2027-03-20\' WHERE "EventID" = 50', cfg)
+    pipeline.run(cfg, ASOF)
+    assert q(cfg, 'SELECT count(*) AS n FROM stg."EventEmployeeAssignment" WHERE "EventID" = 50')[0]["n"] == 1
+    assert q(cfg, 'SELECT count(*) AS n FROM etl."RejectedRow" WHERE "ResolvedRunID" IS NULL')[0]["n"] == 0
 
 
 def test_blocking_quality_gate_stops_before_the_warehouse(base, monkeypatch):
@@ -112,8 +118,8 @@ def test_crash_during_load_then_resume_from_checkpoint(base, monkeypatch):
     with pytest.raises(RuntimeError, match="injected failure"):
         pipeline.run(Config(), ASOF)
     run_id = last_run(cfg)["RunID"]
-    # 16 h -> 20 h: planning goes from 4 h to 8 h over 4 Jan - 1 Feb (0.8 -> 1.6 h a week); only
-    # the week of 1 Feb is still open, the January weeks have ended and stay frozen
+    # 16 h -> 20 h: planning goes from 4 h to 8 h over 4 Jan - 1 Feb (0.8 -> 1.6 h a week); the run
+    # carries data to Sunday 31 Jan, so the weeks of 25 Jan and 1 Feb are open, 4-18 Jan stay frozen
     fah = lambda: float(q(cfg, '''SELECT "TotalAssignedHours" AS h FROM mart.v_weekly_workload
                                   WHERE employee LIKE 'Fah%%' AND week_start='2027-02-01' ''')[0]["h"])
     assert fah() == 0.8                                            # the failed step was rolled back completely
@@ -125,15 +131,25 @@ def test_crash_during_load_then_resume_from_checkpoint(base, monkeypatch):
     assert attempts["fact_weekly_workload"] == 2
     assert last_run(cfg)["Status"] == "success" and fah() == 1.6
     # the resumed result equals what a clean run produces: a further run changes nothing
-    # the 4 extra planning hours also belong to 4 January weeks that have ended: kept frozen,
+    # the 4 extra planning hours also belong to 3 January weeks that have ended: kept frozen,
     # reported once as a late change (the alert of the rolled-back attempt was rolled back too)
     late = lambda: q(cfg, '''SELECT "RunID" FROM etl."Alert" WHERE "Message" LIKE '%%late change%%' ''')
     assert [a["RunID"] for a in late()] == [run_id]
-    assert "4 row(s)" in q(cfg, '''SELECT "Message" FROM etl."Alert" WHERE "Message" LIKE '%%late change%%' ''')[0]["Message"]
+    assert "3 row(s)" in q(cfg, '''SELECT "Message" FROM etl."Alert" WHERE "Message" LIKE '%%late change%%' ''')[0]["Message"]
     snapshot = facts(cfg)
     pipeline.run(Config(), ASOF)
     assert all(snapshot[k].astype(str).equals(facts(cfg)[k].astype(str)) for k in snapshot)
     assert len(late()) == 1                                         # same condition, not alerted again
+
+
+def test_monday_run_still_writes_the_week_that_ended_on_sunday(base):
+    """Scenario: On Sunday 7 Feb Fah's assignment goes 16 -> 20 h; the Monday 02:00 run (as of 8 Feb) loads it.
+    Expected: The week of 1 Feb, which that Sunday belongs to, gets the new 1.6 h. It freezes only from the Tuesday run."""
+    crm_exec('UPDATE transaction."EventEmployeeAssignment" SET "WorkloadHours"=20 WHERE "EventID"=104 AND "EmployeeID"=6', base)
+    pipeline.run(base, date(2027, 2, 8))
+    h = q(base, '''SELECT "TotalAssignedHours" AS h FROM mart.v_weekly_workload
+                   WHERE employee LIKE 'Fah%%' AND week_start='2027-02-01' ''')[0]["h"]
+    assert float(h) == 1.6
 
 
 def test_damaged_landing_file_is_refused(base):

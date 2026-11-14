@@ -65,7 +65,7 @@ are exact. The offline store keeps each day's features from the first day in pro
 | Candidates | Logistic regression and gradient boosting (scikit-learn), the same preprocessing: one-hot categories, median imputation with a "was missing" flag |
 | Baseline | Each channel's past booking rate |
 | Metrics | AUC overall and by inquiry age, PR-AUC, share of bookings in the top 20% of scores, Brier score |
-| Gate | Promote only if AUC ≥ baseline + 0.05, and not more than 0.01 below the production model on test inquiries that model never saw |
+| Gate | Promote only if AUC ≥ baseline + 0.05, and not more than 0.01 below the production model on at least 50 test inquiries that model never saw; with fewer, production is kept |
 | Production model | The winner refit on train + test; bands: High = top 20% of scores, Medium = next 30%, Low = the rest |
 
 Results (test window 21 Apr – 16 Oct 2026, model trained on data to 15 Jan 2027):
@@ -90,7 +90,7 @@ the High band booked 39% of the time, Medium 13% and Low 1%.
 | Missing values | A feature's missing rate compared with training (≥ 0.05 change warns, ≥ 0.15 alerts) |
 | Performance | Live AUC of the scores given 30–180 days ago whose outcome is now known; 0.05 below the test AUC warns, 0.1 alerts |
 | Alerts | `ml."DriftCheck"`, and alerts in `etl."Alert"` next to the ETL alerts |
-| Retraining | Weekly (`aisleco_weekly_train`), and by hand after a drift alert. A retrained model replaces production only through the gate |
+| Retraining | Weekly (`aisleco_weekly_train`), and by hand after a drift alert. A retrained model replaces production only through the gate; production learnt from every inquiry up to 90 days before its as-of date, so after a weekly retrain it is usually kept, and replaced about once a month on evidence |
 
 In the simulation, a TikTok campaign in 2026 made TikTok about 19% of inquiries instead of 6%, and those
 couples book far less often. The channel PSI was at most 0.12 in 2024–2025 and rose to 0.2–0.4 in 2026;
@@ -117,7 +117,7 @@ no-reply rate by month, reply speed, lost reasons), the follow-up list and model
 |---|---|
 | 0: manual | Passed: no manual step between data and prediction |
 | 1: ML pipeline automation | Yes: automated training pipeline with continuous training, feature store, metadata store and registry, validation gate, monitoring with alerts |
-| 2: CI/CD of the pipeline | Partly: 38 automated tests (5 for the model) run with one command, but not yet on every push. The next step is a GitHub Actions workflow running `pytest` against a PostgreSQL service |
+| 2: CI/CD of the pipeline | Partly: 41 automated tests (7 for the model) run with one command, but not yet on every push. The next step is a GitHub Actions workflow running `pytest` against a PostgreSQL service |
 
 ## 7.8 Tests
 
@@ -125,6 +125,7 @@ no-reply rate by month, reply speed, lost reasons), the follow-up list and model
 |---|---|
 | Features at a past cutoff do not change when later rows (messages, consultations, quotes) are added | Pass |
 | Training rows are dated before the inquiry closed; the label is not a feature; a booked inquiry is not returned after its booking | Pass |
-| Same seed, same metrics; a better model replaces production; an impossible gate gives "rejected" and production is unchanged | Pass |
+| Same seed, same metrics; a retrain with no inquiries production never saw keeps production; an impossible gate gives "rejected" and production is unchanged | Pass |
+| A model trained four months later is compared with production on at least 50 inquiries production never saw, and exactly one model is in production afterwards | Pass |
 | One score per open inquiry per day, bands High / Medium / Low, a rerun does not duplicate | Pass |
 | Channel PSI is ok in Oct 2025 and an alert in May 2026, written to `etl.Alert` | Pass |

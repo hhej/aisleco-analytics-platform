@@ -18,6 +18,8 @@ Revision 12 adds the conversion model (feature store, MLOps) and the dashboard, 
 | `dashboard/app.py` | Streamlit dashboard on the `mart` views: Problem 1, Problem 2, follow-up list, model health |
 | `airflow/dags/aisleco_daily_etl.py`, `aisleco_weekly_train.py` | The ETL steps + the model's daily steps as an Airflow DAG; weekly training |
 | `AisleCo_ML_Conversion_Demo.ipynb` (+ `_Colab`) | **The Chapter 7 demo**: feature store, training and gate, registry, 15 months of weekly scoring, drift and retraining. Built with `scripts/build_ml_notebook.py [--colab]` |
+| `AisleCo_End_to_End_Stress_Test.ipynb` (+ `_Colab`) | **End-to-end stress test**: the CRM replayed day by day from 1 Oct 2025 to 15 Jan 2027 (`scripts/replay.py`), each night incremental ETL → features → scores → monitor, training on Sundays; 30 asserted checks (replay vs full load, point-in-time features, scoring), failures between ETL and model, load at 15x/40x. Built with `scripts/build_e2e_notebook.py [--colab]`; uses `aisleco_*_e2e*` databases |
+| `AisleCo_Pipeline_Showcase.html` | **Interactive showcase page** (offline, one file): pipeline map with status, Google Cloud mapping and full source per part; one night played step by step; the 15-month replay; failure tests; the dashboard; the model registry. Template `web/showcase.html`, libraries in `web/vendor/`, built by `scripts/build_showcase.py` |
 | `AisleCo_ETL_Pipeline_Demo.ipynb` | **The demo to present**, with outputs saved: architecture and schema, Problem 1 (staffing) and Problem 2 (conversion) followed run by run through Appendix B, dead letter, quality gate, source → target for one inquiry, crash + resume, extract failure and the E/T/L error matrix, idempotency, source-to-target, stress-test results and a live batch-cap (backlog queue) demo, latency vs the 2-minute target, tests |
 | `AisleCo_ETL_Pipeline_Demo_Colab.ipynb` | The same demo for Google Colab (GitHub `hhej/aisleco-etl-pipeline`): clones the repo and installs PostgreSQL 16 in the session. Built with `scripts/build_demo_notebook.py --colab`; shipped without outputs |
 | `docs/Section6_ETL_Design.md` | Report text: Section 6, the Appendix A rows for Rev 11 and 12, a correction to Appendix B.5 |
@@ -51,13 +53,16 @@ mkdir -p data/sim && cp AisleCo_MultiZone_Architecture_v3.ipynb data/sim/ && \
 # the story, the checks, the demo
 .venv/bin/python scripts/load_walkthrough.py      # CRM + DW from scratch, Appendix B with 4 ETL runs
 .venv/bin/python -m etl status                    # run log
-.venv/bin/python -m pytest tests -q               # 38 tests
+.venv/bin/python -m pytest tests -q               # 41 tests
 ETL_CRM_DSN=dbname=aisleco_crm_bench ETL_DW_DSN=dbname=aisleco_dw_bench ETL_LANDING_DIR=data/landing_bench \
   .venv/bin/python scripts/benchmark.py data/sim/zones_v3 --stress   # offline, about 25 min: writes docs/stress_test.*
 .venv/bin/python scripts/build_demo_notebook.py && \
   .venv/bin/jupyter nbconvert --to notebook --execute --inplace AisleCo_ETL_Pipeline_Demo.ipynb
 .venv/bin/python scripts/build_ml_notebook.py && \
   .venv/bin/jupyter nbconvert --to notebook --execute --inplace AisleCo_ML_Conversion_Demo.ipynb   # fills aisleco_dw_ml
+.venv/bin/python scripts/build_e2e_notebook.py && \
+  .venv/bin/jupyter nbconvert --to notebook --execute --inplace AisleCo_End_to_End_Stress_Test.ipynb   # about 5 min
+.venv/bin/python scripts/build_showcase.py   # AisleCo_Pipeline_Showcase.html, from the e2e results (docs/showcase/) and the source; runs pytest
 ETL_DW_DSN=dbname=aisleco_dw_ml .venv/bin/streamlit run dashboard/app.py                          # http://localhost:8501
 ```
 

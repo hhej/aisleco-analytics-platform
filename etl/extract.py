@@ -18,6 +18,9 @@
   arrives without its parent. The watermark of a capped table becomes T, which is always
   past the old watermark, so every run makes progress. The key file marks held-back keys
   as Pending so reconciliation does not count them as missing.
+* Orphans in the dead letter (a row rejected because its parent was rejected) are read again
+  every run: when the parent is fixed in the CRM, the child itself has not changed, so its
+  UpdatedAt alone would never bring it back.
 """
 import hashlib
 import json
@@ -94,7 +97,7 @@ def _cutoff(cur, wms, cap):
     return rows[0]["u"] if len(rows) == 2 else None
 
 
-def _extract_table(cfg, src, sinces, wms, snapshot, out_dir, cutoff=None):
+def _extract_table(cfg, src, sinces, wms, snapshot, out_dir, cutoff=None, retry=()):
     conn = db.connect(cfg.crm_dsn, cfg, purpose=f"CRM ({src.table})")
     conn.isolation_level = IsolationLevel.REPEATABLE_READ
     conn.read_only = True
@@ -103,8 +106,10 @@ def _extract_table(cfg, src, sinces, wms, snapshot, out_dir, cutoff=None):
             cur.execute(sql.SQL("SET TRANSACTION SNAPSHOT {}").format(sql.Literal(snapshot)))
             table = sql.Identifier(src.schema, src.table)
             since, capped = sinces[src.table], cutoff is not None and _capped(src)
-            changed = _changed("r", since)
-            batch = _taken(src, "r", cutoff, sinces, wms) if capped else changed
+            again = (sql.SQL("r.{} = ANY({})").format(sql.Identifier(src.key), sql.Literal(list(retry)))
+                     if retry else sql.SQL("false"))                       # dead-letter orphans, see above
+            changed = sql.SQL("({} OR {})").format(_changed("r", since), again)
+            batch = sql.SQL("({} OR {})").format(_taken(src, "r", cutoff, sinces, wms), again) if capped else changed
             held = sql.SQL("{} AND NOT {}").format(changed, batch) if capped else sql.SQL("false")   # backlog
             where = sql.SQL("WHERE {}").format(batch)
             table = sql.SQL("{} r").format(table)
@@ -145,6 +150,10 @@ def run(ctx, dw_conn) -> dict:
     marks = {} if ctx.mode == "full" else meta.watermarks(dw_conn)
     wms = {t: m[0] for t, m in marks.items()}
     overlap = timedelta(seconds=cfg.overlap_seconds)
+    retry = {} if ctx.mode == "full" else {r["SourceTable"]: r["keys"] for r in dw_conn.execute(
+        '''SELECT d."SourceTable", array_agg(DISTINCT d."SourceKey") AS keys FROM etl."RejectedRow" d
+           JOIN etl."DqRule" r USING ("RuleID") WHERE d."ResolvedRunID" IS NULL AND r."RuleName" LIKE '%orphan%'
+           GROUP BY 1''').fetchall()}
 
     # Coordinator: open one consistent snapshot and share it with the workers
     coord = db.connect(cfg.crm_dsn, cfg, purpose="CRM")
@@ -157,8 +166,8 @@ def run(ctx, dw_conn) -> dict:
         cutoff = (_cutoff(coord.cursor(), wms, cfg.max_rows_per_run)
                   if ctx.mode != "full" and cfg.max_rows_per_run > 0 else None)
         with ThreadPoolExecutor(max_workers=cfg.extract_workers) as pool:
-            futures = [pool.submit(_extract_table, cfg, src, sinces, wms, snapshot, out_dir, cutoff)
-                       for src in SOURCES]
+            futures = [pool.submit(_extract_table, cfg, src, sinces, wms, snapshot, out_dir, cutoff,
+                                   retry.get(src.table, ())) for src in SOURCES]
             tables = dict(f.result() for f in futures)
     finally:
         coord.close()

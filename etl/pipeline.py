@@ -131,8 +131,11 @@ def run_step(cfg, run_id, name):
                 with conn.transaction():
                     conn.execute("SELECT pg_advisory_xact_lock(%s)", (LOCK_ID,))
                     conn.execute("DELETE FROM work.run_ctx")
+                    # the run carries data up to the end of the day before its as-of date (Monday
+                    # 02:00 loads Sunday), so weeks freeze from the week of that day, not of the as-of
+                    last_day = ctx.asof - timedelta(days=1)
                     conn.execute("INSERT INTO work.run_ctx VALUES (%s, %s, %s)",
-                                 (run_id, ctx.asof, ctx.asof - timedelta(days=ctx.asof.weekday())))
+                                 (run_id, ctx.asof, last_day - timedelta(days=last_day.weekday())))
                     metrics = STEPS[name](ctx, conn) or {}
                     if cfg.fail_at == name:
                         raise RuntimeError(f"injected failure in step {name} (ETL_FAIL_AT)")
