@@ -2,7 +2,6 @@
 
 Sunday 29 November 2026, 25-minute slot, talk 18:00 minutes, live demo 7:00 by Presenter B.
 Deck: `docs/v2/deliverables/AisleCo_Final_Presentation.pptx` (19 slides; speaker notes name the presenter and timing).
-⟦TBD⟧ Lead-model numbers, the Today-list example and the champion version are v4 placeholders until the v6 retrain; refresh them, plus forecast/capacity numbers if they changed, after "v6 ready".
 Every click path below was checked against the running system on 17 Nov 2026. Fallback screenshots are in `docs/v2/img/`.
 
 ## 1. Talk timing
@@ -19,8 +18,8 @@ Every click path below was checked against the running system on 17 Nov 2026. Fa
 | 8 | The nightly pipeline is proven | B | 0:35 | 4:50 |
 | 9 | Sales and Operations get separate pages, linked | B | 0:30 | 5:25 |
 | 10 | The lead model answers one decision | A | 0:35 | 5:55 |
-| 11 | Top 15 holds ⟦TBD 73 %⟧ of bookings vs ⟦TBD 48 %⟧ | A | 0:40 | 6:30 |
-| 12 | Gate history v1–v6 (v4 retired: data bug) ⟦TBD⟧ | A | 0:30 | 7:10 |
+| 11 | Top 15 holds 74 % of bookings vs 48 % | A | 0:40 | 6:30 |
+| 12 | Gate rejected four candidates; v4 retired for a data bug; v6 champion | A | 0:30 | 7:10 |
 | 13 | Each data source earns its place; TF-IDF dropped | A | 0:25 | 7:40 |
 | 14 | Staffing forecast: 17 over-capacity role-weeks, 644 h | A | 0:40 | 8:05 |
 | 15 | The models run themselves (MLOps) | B | 0:35 | 8:45 |
@@ -112,11 +111,11 @@ Note for questions: the hourly file stays in landing until its hour is over, the
 
 | | |
 |---|---|
-| Click | Same `nok` window, scroll to **Call lists**. Point at #1: name, channel, package, budget, requested date with its badge (Room / Tight / Full), "High ⟦TBD⟧ %", "≈ ฿⟦TBD⟧k", **Why:** three reasons, **Next:** the action. Click **How is this ranked?** and read one sentence. Then **Mark contacted** on #1 → choose **Call**, outcome **Reached** → **Save**. The card shows "Contacted hh:mm · Call · Reached". |
+| Click | Same `nok` window, scroll to **Call lists**. Point at #1 (on 17 Nov: Golf, Wedding Fair, Full Planning, 1M–1.5M, wants Sat 4 Dec [Room], High 52 %, ≈ ฿87k, Why: Asked to meet · Came to a consultation · Consultation 21 days ago, Next: Check in): name, channel, package, budget, requested date with its badge (Room / Tight / Full), "High 52 %", "≈ ฿87k", **Why:** three reasons, **Next:** the action. Click **How is this ranked?** and read one sentence. Then **Mark contacted** on #1 → choose **Call**, outcome **Reached** → **Save**. The card shows "Contacted hh:mm · Call · Reached". |
 | Say | "Ranked by expected fee: chance to book times the fee. No model jargon: reasons in plain words and a next action. The tick is written back to the CRM, the system of record, through a database role that can only insert follow-ups; tonight it flows into the warehouse." |
 | Fallback | `app_today.jpg` (list) and `app_today_may_mark.jpg` (the Mark contacted form). |
 
-(Exact names, percentages and amounts on the list change every night.)
+(Exact names, percentages and amounts on the list change every night. Bands: High is about the top 15 % of the test period; on 17 Nov 13 High, 62 Medium, 48 Low of 123 scored.)
 
 ### Step 4. Operations: who is overloaded, and can we take the date (1:15, clock 14:25–15:40)
 
@@ -140,7 +139,7 @@ Note for questions: the hourly file stays in landing until its hour is over, the
 | | |
 |---|---|
 | Click 1 | Catalog tab → **KPIs (42)** → card **Conversion** → **Show lineage to the source**. The drawer walks the number: dashboard tile → `mart_exec.v_monthly_kpis.conversion` → `mart_sales.v_inquiry.IsBooked` → `gold.FactInquiry.IsBooked` → Silver → Bronze → CRM column. |
-| Click 2 | MLflow tab → `lead_conversion` versions: ⟦TBD: v6 after the retrain (v4 retired)⟧ carries the alias **@champion**; the others are kept with their gate decision. |
+| Click 2 | MLflow tab → `lead_conversion` versions: v6 carries the alias **@champion**, v4 the alias **@retired** with its `retired_reason` tag; the others are kept with their gate decision. |
 | Click 3 | Airflow tab → the run started in step 2 is green. |
 | Say | "Every number on every page traces back to a source column. Every model version is kept with the reason it was promoted or rejected. And the pipeline you watched is the one that runs every night at two." |
 | Fallback | `catalog_lineage.jpg`, `mlflow_registry.jpg`, `airflow_daily.jpg`, `app_health.jpg`. |
