@@ -17,3 +17,6 @@ icalendar==7.3.0
 bcrypt==5.0.0
 itsdangerous==2.2.0
 PyYAML==6.0.3
+mlflow==3.18.0
+optuna==5.1.0
+shap==0.51.0

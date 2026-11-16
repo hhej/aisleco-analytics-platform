@@ -37,7 +37,7 @@ the pipeline has no path to. Tests use it for source-to-target checks and to pro
 | Office | marketing and finance (not assigned to weddings) |
 | Contract history | Nina 44 → 36 h from 1 Feb 2026; Ploy hired 1 Jun 2024; freelance coordinator Fah 20 h/week for Dec–Feb peaks each season; one planner leaves in Aug 2025 and is replaced in Oct 2025 |
 | Packages | Full Planning (12.5 % of budget, 13.5 % from 1 Jul 2026), Partial Planning ฿90,000, Day-of Coordination ฿45,000 (฿52,000 from 1 Jul 2026), Custom |
-| Hours per wedding (by role, before noise) | Full: lead planner 80, planner 40, coordinator 24, 2 event staff × 12. Partial: planner 45, coordinator 20, event staff 12. Day-of: coordinator 20, 2 event staff × 12. +25 % above 400 guests, +30 % for high complexity, ±15 % noise |
+| Hours per wedding (by role, before noise) | Full: lead planner 61, planner 52, coordinator 35, 2 event staff × 23. Partial: planner 70, coordinator 30, 2 event staff × 17. Day-of: coordinator 30, 2 event staff × 21. Custom: planner 44, coordinator 26, event staff 17. +25 % above 400 guests, +30 % for high complexity, ±15 % noise (calibrated in M3, decision C17) |
 | Fairs | 5 a year (late Jan, mid Mar, early Jun, late Aug, mid Oct), Friday–Sunday |
 
 Capacity is about 420 h a week against an average demand of about 330 h, so average utilization is near 78 %, with peaks above

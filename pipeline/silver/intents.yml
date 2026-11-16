@@ -1,0 +1,45 @@
+# Intent tagger (Spec 02 §4.4): regular expressions per intent, Thai + English, applied case-insensitively to the
+# customer's messages (DuckDB regexp_matches(text, pattern, 'i')). A message gets intent_<name> = 1 when any pattern matches.
+ask_price:
+  - 'ราคา|ขอเรท'
+  - 'เท่าไหร่|เท่าไร'
+  - 'ค่าใช้จ่าย'
+  - '\bhow much\b'
+  - '\bprices?\b|\brates?\b|\bcost\b|\bquote\b'
+ask_availability:
+  - 'ว่างไหม|ว่างมั้ย|ว่างอยู่ไหม|ยังว่าง|คิวว่าง|เช็กคิว|เช็คคิว|รับงานไหม|ยังทันไหม'
+  - '\bavailable\b|\bavailability\b|\bstill (?:free|open)\b|\bfree on\b|\b(?:have|got) .{0,20}\bopen\b'
+mention_date:
+  - '\d{1,2}\s*(?:ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)'
+  - '\d{1,2}\s*(?:มกรา|กุมภา|มีนา|เมษา|พฤษภา|มิถุนา|กรกฎา|สิงหา|กันยา|ตุลา|พฤศจิกา|ธันวา)'
+  - '\b\d{1,2}(?:st|nd|rd|th)?\s*(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b'
+  - '\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\d{1,2}\b'
+  - '\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b'
+mention_guests:
+  - '\d{2,4}\s*(?:คน|ท่าน)'
+  - 'แขก\s*(?:ประมาณ|ราวๆ|ราว|สัก)?\s*\d{2,4}'
+  - '\b\d{2,4}\s*(?:guests?|pax|people|persons)\b'
+ask_package_detail:
+  - 'รวมอะไรบ้าง|มีอะไรบ้าง|ได้อะไรบ้าง'
+  - 'รวม.{0,20}ไหม'
+  - 'ต่างกันยังไง|แตกต่างกัน'
+  - "\\binclud(?:e|ed|es|ing)\\b|what'?s in\\b|\\bdifference between\\b"
+ask_meeting:
+  - 'นัด|เข้าไปคุย|วิดีโอคอล|ปรึกษารายละเอียด'
+  - '\bconsult(?:ation)?\b|\bmeet(?:ing)?\b|\bvisit (?:the|your) office\b|\bset up a call\b|\bcall to discuss\b'
+price_objection:
+  - 'แพง|เกินงบ|ลดได้ไหม|ลดได้มั้ย|ขอราคาพิเศษ|ส่วนลด'
+  - 'งบ(?:เรา)?(?:มี)?\s*\d'
+  - '\bexpensive\b|\bdiscount\b|\bover (?:our |my )?budget\b'
+family_decision:
+  - 'ปรึกษาที่บ้าน|ปรึกษาผู้ใหญ่|ถามผู้ใหญ่|ปรึกษาครอบครัว|คุยกับแฟน|ถามแฟน|ขอเวลาคิด'
+  - '\bdiscuss with (?:my )?(?:family|parents)\b|\bcheck with my (?:fianc|partner|parents|family)'
+competitor:
+  - 'ที่อื่น|เทียบราคา|หลายๆ\s*ที่|เจ้าอื่น'
+  - '\banother planner\b|\bother planners?\b|\bcompar(?:e|ing)\b'
+positive:
+  - 'ขอบคุณมาก|ขอบคุณที่|ชอบมาก|สวยมาก|โอเคเลย|ถูกใจ|ตรงกับที่อยากได้'
+  - '\bthank you\b|\bthanks\b|\blove it\b|\bperfect\b|\bgreat\b'
+commit:
+  - 'ตกลง|จอง|มัดจำ|เซ็นสัญญา|เลขบัญชี'
+  - "\\blet'?s book\\b|\\bbook it\\b|\\bdeposit\\b|\\bready to sign\\b|\\bsign the contract\\b"

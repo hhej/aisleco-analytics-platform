@@ -1,0 +1,48 @@
+# Data-quality rules (Spec 02 §5). Loaded into etl.dq_rule. Row rules are applied inside the Silver SQL
+# (columns _reject / _warn); rules with `check:` run over the finished Silver build (DuckDB SQL returning the
+# number of failing rows). Severity: reject = row to quarantine; warn = logged, row kept; info = counted;
+# block = the run stops before anything is published.
+- {id: R01, source: crm, target: inquiry, severity: reject, description: "InquiryID is null"}
+- {id: R02, source: crm, target: inquiry, severity: reject, description: "InquiryDate missing or outside 2022-01-01 .. run date"}
+- {id: R03, source: crm, target: inquiry, severity: warn, description: "channel not in MarketingChannel (unknown member used)"}
+- {id: R03b, source: crm, target: inquiry, severity: warn, description: "tracking code of the first message belongs to another channel"}
+- {id: R04, source: crm, target: inquiry, severity: warn, description: "a stage timestamp is before the inquiry, or the quote is before the consultation"}
+- {id: R05, source: crm, target: inquiry, severity: warn, description: "budget text could not be mapped to a band (Unknown)"}
+- {id: R06, source: crm, target: inquiry, severity: warn, description: "status disagrees with the data (Converted without event, Lost without reason)"}
+- {id: R07, source: crm, target: chat_message, severity: reject, description: "staff message in the CRM without the employee"}
+- {id: R08a, source: crm, target: event, severity: reject, description: "event without a date, or guest count outside 20..2000"}
+- {id: R08b, source: crm, target: event, severity: warn, description: "complexity not Low/Medium/High"}
+- {id: R09, source: crm, target: event, severity: warn, description: "event points to an inquiry that does not exist"}
+- {id: R10a, source: crm, target: assignment, severity: reject, description: "assignment hours outside 0..300"}
+- {id: R10b, source: crm, target: assignment, severity: reject, description: "assignment whose event or employee is missing or rejected (orphan; re-read every run)"}
+- {id: R11, source: crm, target: assignment, severity: warn, description: "assigned after the wedding (all hours go in the wedding week)"}
+- {id: R12a, source: crm, target: sales_activity, severity: reject, description: "follow-up on an inquiry that does not exist (orphan; re-read every run)"}
+- {id: R12b, source: crm, target: sales_activity, severity: warn, description: "follow-up dated before the inquiry"}
+- {id: R13, source: crm, target: employee_contract, severity: block, description: "two contracts of one employee overlap",
+   check: "SELECT count(*) FROM employee_contract a JOIN employee_contract b ON a.employee_id = b.employee_id AND a.contract_id < b.contract_id AND a.effective_from <= coalesce(b.effective_to, DATE '9999-12-31') AND b.effective_from <= coalesce(a.effective_to, DATE '9999-12-31')"}
+- {id: R20, source: chat, target: chat_message, severity: reject, description: "webhook body is not JSON or lacks the platform's required fields"}
+- {id: R21, source: chat, target: chat_message, severity: warn, description: "message time more than 7 days before or 5 minutes after it was received"}
+- {id: R22, source: chat, target: chat_message, severity: info, description: "re-delivered duplicate (dropped)"}
+- {id: R23, source: chat, target: chat_message, severity: warn, description: "outbound staff code does not map to an employee"}
+- {id: R24, source: chat, target: chat_message, severity: warn, description: "message in Bronze without a CRM row, or CRM row without a Bronze message"}
+- {id: R30, source: fair_tablet, target: fair_lead, severity: reject, description: "tablet batch file is not valid JSON"}
+- {id: R31, source: fair_tablet, target: fair_lead, severity: info, description: "repeated batch (same device and batch_seq) dropped"}
+- {id: R32, source: fair_tablet, target: fair_lead, severity: warn, description: "crm_inquiry_id missing or unknown"}
+- {id: R33, source: fair_tablet, target: fair_lead, severity: warn, description: "phone missing or not 9-10 digits"}
+- {id: R40, source: th_holidays, target: calendar_day, severity: warn, description: "holiday calendar has fewer than 15 events in a year up to next year, or no Asalha Bucha (Lent approximated)",
+   check: "SELECT count(*) FROM (SELECT year FROM calendar_day WHERE year <= year(current_date) + 1 GROUP BY year HAVING sum(CASE WHEN is_public_holiday THEN 1 ELSE 0 END) < 15 OR bool_or(lent_source = 'approximated'))"}
+- {id: R41, source: auspicious, target: auspicious_date, severity: reject, description: "auspicious level not Low/Medium/High, or date outside its file's year"}
+- {id: S01, source: any, target: any, severity: block, description: "more than 5 % of a table's rows delivered by this run were rejected"}
+- {id: S02, source: crm, target: employee_contract, severity: block, description: "a master snapshot shrank by more than 20 % since the last run"}
+- {id: S03, source: crm, target: assignment, severity: block, description: "a published child row points to a missing parent",
+   check: "SELECT (SELECT count(*) FROM assignment WHERE event_id NOT IN (SELECT event_id FROM event)) + (SELECT count(*) FROM sales_activity WHERE inquiry_id NOT IN (SELECT inquiry_id FROM inquiry))"}
+- {id: S04, source: chat, target: chat_message, severity: warn, description: "newest chat message is more than 26 hours old at run time (gateway down?)",
+   check: "SELECT CASE WHEN coalesce((SELECT max(sent_at) FROM chat_message WHERE direction = 'In'), TIMESTAMP '1900-01-01') < (SELECT \"asof\"::TIMESTAMP FROM ref.run) - INTERVAL 26 HOUR THEN 1 ELSE 0 END"}
+- {id: S05, source: chat, target: chat_message, severity: warn, description: "payload has a field the parser does not know (schema change; Bronze keeps it)"}
+- {id: C01, source: chat, target: chat_message, severity: block, description: "inbound events in Bronze != unique messages + duplicates + rejected",
+   check: "SELECT CASE WHEN (SELECT sum(CASE WHEN NOT json_valid(body) THEN 1 WHEN platform = 'line' THEN len(list_filter(json_extract_string(body, '$.events[*].type'), lambda t: t = 'message')) ELSE len(json_extract(body, '$.entry[*].messaging[*].message')) END) FROM bronze.chat WHERE platform <> 'outbound') = (SELECT count(*) + sum(_copies) FROM _all_chat_message WHERE direction = 'In' AND _received_at IS NOT NULL) THEN 0 ELSE 1 END"}
+- {id: C02, source: silver, target: gold, severity: block, description: "a Silver inquiry or event does not have exactly one Gold fact row"}
+- {id: C03, source: silver, target: gold, severity: block, description: "hours spread over weeks do not add up to the assignment hours"}
+- {id: C03b, source: silver, target: gold, severity: warn, description: "hours of a week that has ended changed since the last run (late correction)"}
+- {id: C04, source: crm, target: silver, severity: block, description: "Silver keys differ from the CRM's latest key list"}
+- {id: C05, source: gold, target: marts, severity: block, description: "mart totals differ from Gold totals"}

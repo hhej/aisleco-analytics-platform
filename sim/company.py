@@ -61,11 +61,11 @@ PACKAGES = [  # id, name, type, base price, fee type, fee rate, from, to
 PACKAGE_CHANGE_ENTERED = D(2026, 6, 15)     # the July 2026 price versions were keyed in on this day
 
 # staff hours per wedding before multipliers: role -> list of hours (one assignment each)
-HOURS = {
-    "Full": {"Lead Planner": [70], "Planner": [60], "Coordinator": [40], "Event Staff": [26, 26]},
-    "Partial": {"Planner": [80], "Coordinator": [35], "Event Staff": [20, 20]},
-    "DayOf": {"Coordinator": [35], "Event Staff": [24, 24]},
-    "Custom": {"Planner": [50], "Coordinator": [30], "Event Staff": [20]},
+HOURS = {   # calibrated in M3 so ops utilization averages ~78 % with peaks above 120 % (Spec 06 §8)
+    "Full": {"Lead Planner": [61], "Planner": [52], "Coordinator": [35], "Event Staff": [23, 23]},
+    "Partial": {"Planner": [70], "Coordinator": [30], "Event Staff": [17, 17]},
+    "DayOf": {"Coordinator": [30], "Event Staff": [21, 21]},
+    "Custom": {"Planner": [44], "Coordinator": [26], "Event Staff": [17]},
 }
 LEAD_ROLE = {"Full": "Lead Planner", "Partial": "Planner", "DayOf": "Coordinator", "Custom": "Planner"}
 

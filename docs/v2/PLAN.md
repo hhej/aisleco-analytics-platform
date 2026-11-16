@@ -292,6 +292,10 @@ If the presentation is on day 7 or earlier, M6 and M10 drop first, then the Data
 | 2026-11-16 | D10 | Presentation 29 Nov, 15–20 min, two presenters | user |
 | 2026-11-16 | D11 | Use subagents for parallel work | user |
 | 2026-11-16 | C13 | Google's holiday feed has Asalha Bucha only to 2027: Lent after 2027 approximated and flagged | real data gap found in M1 |
+| 2026-11-16 | C15 | No separate monthly DAG: `ingest_files` pulls the holiday calendar on the 1st of the month (or when none exists) | one fewer moving part |
+| 2026-11-16 | C16 | FactStaffWorkload stores week shares unrounded; C03 tolerance 0.001 h | rounding each week to 3 decimals lost up to 0.016 h per assignment |
+| 2026-11-16 | C17 | Hours per wedding scaled by 0.87 (Spec 06 §3) | ops utilization averaged 89 % with 170 % peaks; now 78 % average, 110–144 % peaks, 33–48 % in Lent |
+| 2026-11-16 | C18 | Intent tags computed once per distinct message text | regex from a table is compiled per row in DuckDB; fine at this size, revisit for real chat volumes |
 | 2026-11-16 | C14 | Simulation starts 1 Jul 2022 (warm-up) so 2024 is a full year of weddings; calendar and DimDate run 2022–2028 | weddings are booked 4–14 months ahead |
 
 ## 11. Confirmed details
@@ -319,4 +323,5 @@ If the presentation is on day 7 or earlier, M6 and M10 drop first, then the Data
 | 2026-11-16 | Plan | Draft written |
 | 2026-11-16 | Plan | Confirmed by user; M0 started |
 | 2026-11-16 | M0 | v1 committed (4c0f085) and moved to `archive/v1/`; v1 DBs renamed `v1_aisleco_crm/dw`; deps installed (duckdb 2.0.0, fastapi, httpx, icalendar, bcrypt); `scripts/services.sh` (bash 3.2-safe). MLflow/Optuna/SHAP install still running. |
+| 2026-11-16 | M2+M3 | Ingestion (CRM CDC reused from v1 + file ingestion), Silver runner + 15 Silver tables (chat/tablet/calendar SQL by subagent), 39 DQ rules as data with quarantine, Gold star schema (5 dims incl. SCD2 staff, 6 facts), 4 role marts (32 views) + PostgreSQL grants, reconciliation C02/C03/C05, Airflow DAGs `aisleco_daily` + `aisleco_sim_day`. Full initial load (`--full-refresh`): ingest 166,792 CRM rows + 45,169 files ~50 s, Silver→marts 22 s. Resume from checkpoint tested. Injected problems caught: R20 58, R22 777, R30 4, R31 83, R33 41, R41 1, S05 1,126, R11 5. KPIs: conversion 7.0–8.8 %, ops utilization 72–81 %/yr. 40 tests pass. |
 | 2026-11-16 | M1 | OLTP v6 (`sources/crm/`, 13 tables, simulated-clock trigger, no-overlap constraint, insert-only `crm_app_writer`). Chat gateway + holiday fetcher + auspicious generator (subagent, 17 tests). Simulator `sim/` calibrated (Spec 06 §8 table): backfill 1 Jul 2022 → 15 Nov 2026 in 83 s: 6,564 inquiries, 41,170 sales follow-ups, ~45,000 hourly webhook files, 144 tablet files, 163 rejected requests. Found: Google feed lacks lunar holidays after 2027 (C13); contract constraint caught an update-order bug. 21 tests pass. |
