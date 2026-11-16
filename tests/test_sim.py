@@ -1,0 +1,42 @@
+"""Simulator checks that need no database: same seed → same business; the CRM rows never carry the hidden
+readiness; every webhook is signed so the gateway accepts it (Spec 06)."""
+from datetime import date, timedelta
+
+from sim.engine import World
+
+
+def run(days, seed=11):
+    w = World(seed=seed)
+    out = [w.setup()]
+    d = w.start
+    for _ in range(days):
+        out.append(w.run_day(d))
+        d += timedelta(1)
+    return w, out
+
+
+def test_same_seed_same_business():
+    a, da = run(60)
+    b, db = run(60)
+    assert [x.crm for x in da] == [x.crm for x in db]
+    assert a.ids == b.ids
+
+
+def test_hidden_readiness_never_reaches_the_crm():
+    w, days = run(60)
+    cols = {c for d in days for op, t, payload, *rest in d.crm if op == "insert" for c in payload}
+    assert not {"z", "true_channel", "readiness"} & {c.lower() for c in cols}
+    assert all("z" in r for r in w.truth)          # it exists only in the ground truth
+
+
+def test_fair_days_are_friday_to_sunday():
+    w = World()
+    for f in w.fair_fridays(2025):
+        assert f.weekday() == 4
+
+
+def test_contract_history_has_no_overlap():
+    from sim.company import STAFF
+    for code, *_, contracts in STAFF:
+        spans = sorted((c[4], c[5] or date.max) for c in contracts)
+        assert all(a[1] < b[0] for a, b in zip(spans, spans[1:])), code

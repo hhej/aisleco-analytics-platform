@@ -78,12 +78,13 @@ All SQL is in `pipeline/silver/sql/NN_<table>.sql` (DuckDB dialect), one file pe
 
 ### 4.1 `calendar_day`
 - **in**: latest `bronze/external/th_holidays` fetch; every `bronze/external/auspicious` year file.
-- **grain**: one calendar day, 2023-01-01 to 2028-12-31.
+- **grain**: one calendar day, 2022-01-01 to 2028-12-31.
 - **steps**:
   1. Generate the date spine.
   2. Parse ICS `VEVENT`s into (date, name). Several holidays on one date are joined with " / ".
   3. Buddhist Lent per year: A = date of "Asalha Bucha"; Lent = A + 1 (Khao Phansa) through A + 89 (Ok Phansa).
-     Check: 2025 gives 11 Jul – 7 Oct; 2026 gives 30 Jul – 26 Oct.
+     Check: 2025 gives 11 Jul – 7 Oct; 2026 gives 30 Jul – 26 Oct. The feed has no lunar holidays after 2027; for such a
+     year Lent is approximated as 20 Jul – 17 Oct and `lent_source = 'approximated'` marks it (only far-future dates are affected).
   4. Auspicious level = the highest level over all date types on that day (High > Medium > Low); types joined.
   5. Flags: high season (month in Nov, Dec, Jan, Feb), Valentine's Day (from the ICS), weekend, public holiday.
   6. Week start = the Monday of the ISO week.
@@ -191,7 +192,7 @@ Rules are data (`pipeline/quality/rules.yml`, loaded into `etl.dq_rule`), not hi
 | ID | Source / table | Rule | Severity |
 |---|---|---|---|
 | R01 | CRM Inquiry | `InquiryID` not null | reject |
-| R02 | CRM Inquiry | `InquiryDate` not null and between 2023-01-01 and the run date | reject |
+| R02 | CRM Inquiry | `InquiryDate` not null and between 2022-01-01 and the run date | reject |
 | R03 | CRM Inquiry | channel exists | warn (unknown channel) |
 | R03b | CRM Inquiry | tracking code of the first message matches the channel | warn |
 | R04 | CRM Inquiry | stage timestamps not before `InquiryDate`; quote not before consultation | warn |

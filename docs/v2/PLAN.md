@@ -291,6 +291,8 @@ If the presentation is on day 7 or earlier, M6 and M10 drop first, then the Data
 |---|---|---|---|
 | 2026-11-16 | D10 | Presentation 29 Nov, 15–20 min, two presenters | user |
 | 2026-11-16 | D11 | Use subagents for parallel work | user |
+| 2026-11-16 | C13 | Google's holiday feed has Asalha Bucha only to 2027: Lent after 2027 approximated and flagged | real data gap found in M1 |
+| 2026-11-16 | C14 | Simulation starts 1 Jul 2022 (warm-up) so 2024 is a full year of weddings; calendar and DimDate run 2022–2028 | weddings are booked 4–14 months ahead |
 
 ## 11. Confirmed details
 
@@ -316,3 +318,5 @@ If the presentation is on day 7 or earlier, M6 and M10 drop first, then the Data
 |---|---|---|
 | 2026-11-16 | Plan | Draft written |
 | 2026-11-16 | Plan | Confirmed by user; M0 started |
+| 2026-11-16 | M0 | v1 committed (4c0f085) and moved to `archive/v1/`; v1 DBs renamed `v1_aisleco_crm/dw`; deps installed (duckdb 2.0.0, fastapi, httpx, icalendar, bcrypt); `scripts/services.sh` (bash 3.2-safe). MLflow/Optuna/SHAP install still running. |
+| 2026-11-16 | M1 | OLTP v6 (`sources/crm/`, 13 tables, simulated-clock trigger, no-overlap constraint, insert-only `crm_app_writer`). Chat gateway + holiday fetcher + auspicious generator (subagent, 17 tests). Simulator `sim/` calibrated (Spec 06 §8 table): backfill 1 Jul 2022 → 15 Nov 2026 in 83 s: 6,564 inquiries, 41,170 sales follow-ups, ~45,000 hourly webhook files, 144 tablet files, 163 rejected requests. Found: Google feed lacks lunar holidays after 2027 (C13); contract constraint caught an update-order bug. 21 tests pass. |

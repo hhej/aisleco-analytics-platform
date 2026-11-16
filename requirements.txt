@@ -8,3 +8,12 @@ jupyter==1.1.1
 scikit-learn==1.7.2
 lightgbm==4.7.0
 streamlit==1.50.0
+# v2 (pinned at install, 16 Nov 2026)
+duckdb==2.0.0
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+icalendar==7.3.0
+bcrypt==5.0.0
+itsdangerous==2.2.0
+PyYAML==6.0.3

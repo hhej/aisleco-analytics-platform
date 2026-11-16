@@ -21,3 +21,14 @@ airflow/*
 *.docx
 crosscheck_v3.py
 docs/benchmark_x10.txt
+
+# v1 archive: run-time data stays untracked
+archive/v1/data/landing*/
+archive/v1/data/sim/*
+!archive/v1/data/sim/zones_v3/
+
+# v2 data, landing drop folders, logs, simulator ground truth
+lake/
+var/
+app/web/node_modules/
+app/web/dist/

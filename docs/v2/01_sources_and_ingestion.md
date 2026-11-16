@@ -13,7 +13,7 @@ source is moved into Bronze (full dump, incremental, push or file drop), and why
 | 4 | **External calendars**: (a) Thai public and Buddhist holidays, (b) auspicious wedding dates | (a) Google's public Thai holiday calendar on the internet; (b) a yearly CSV file compiled by marketing | External; (a) semi-structured iCalendar, (b) structured CSV | ICS, CSV | (a) ~25 holidays/year, (b) ~60 dates/year | Problem 1 (peak and Lent flags), both models |
 
 Source 4a is **real**: `https://calendar.google.com/calendar/ical/en.th%23holiday%40group.v.calendar.google.com/public/basic.ics`
-(checked 16 Nov 2026: HTTP 200, 115 KB, contains Asalha Bucha for every year 2021–2029). Buddhist Lent starts the day after
+(checked 16 Nov 2026: HTTP 200, 115 KB, 322 events 2021–2031; Buddhist lunar holidays such as Asalha Bucha are listed only up to 2027). Buddhist Lent starts the day after
 Asalha Bucha and ends with Ok Phansa 88 days later (Spec 02 §4, `calendar_day`). This replaces Rev10's approximation
 "20 July – 17 October". A copy is cached in `sources/external/fixtures/` so a run without internet still works.
 
@@ -180,7 +180,7 @@ guest count, venue type and the couple's own wishes (free text).
 | Method | API pull: HTTP GET, timeout 10 s, 3 retries | File drop into `lake/landing/external/` |
 | Frequency | Monthly, 1st of the month (DAG `aisleco_monthly_external`) | Yearly |
 | Bronze | `bronze/external/th_holidays/fetched_date=D/basic.ics` (every fetch kept) | `bronze/external/auspicious/year=YYYY/auspicious_YYYY.csv` |
-| Checks | parses; at least 15 events per year; Asalha Bucha present for every year in range | header and types; level in Low/Medium/High; date inside the stated year |
+| Checks | parses; at least 15 events per year; Asalha Bucha present for every year up to next year (later years: Lent approximated, flagged) | header and types; level in Low/Medium/High; date inside the stated year |
 | On failure | warning alert; the last good fetch is used | warning alert; the previous year's file is used |
 
 ```text
@@ -193,7 +193,7 @@ END:VEVENT
 ```csv
 calendar_date,date_type,auspicious_level,description
 2027-02-13,ThaiAstrology,High,ฤกษ์มงคลสมรส วันเสาร์ขึ้น 7 ค่ำ
-2027-02-20,ChineseCalendar,Medium,宜嫁娶
+2027-02-20,ThaiAstrology,High,ฤกษ์มงคลสมรส วันเสาร์
 ```
 
 ## 6. Personal data (PDPA-style minimisation)

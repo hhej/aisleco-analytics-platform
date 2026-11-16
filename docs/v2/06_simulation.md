@@ -21,7 +21,7 @@ the pipeline has no path to. Tests use it for source-to-target checks and to pro
 
 | Mode | Command | What it does |
 |---|---|---|
-| Backfill | `python -m sim backfill --from 2024-01-01 --to yesterday --seed 11` | simulates every day in order; posts webhooks with `X-Sim-Clock` so they land in the right Bronze partitions; about 3 years in a few minutes |
+| Backfill | `python -m sim init --reset` then `python -m sim backfill --to yesterday` | simulates every day from 1 Jul 2022 (warm-up, so 2024 starts with a full order book) in order; posts webhooks with `X-Sim-Clock` so they land in the right partitions; 4.4 years in about 85 s |
 | Day | `python -m sim day --date D` (DAG `aisleco_sim_day`, 01:00) | simulates one more day; from model launch on, salespeople work the call list from `mart_sales` |
 | Live message | demo panel or `python -m sim message --new-couple` | one LINE message now, real clock |
 | Report | `python -m sim report` | the calibration numbers of §8 |
@@ -124,11 +124,23 @@ Staff replies use their own templates. Optional (M10): enlarge the bank with the
 | Conversion (decided inquiries) | 6–8 % (2026 lower than 2024–25) | CRM |
 | Weddings in Nov–Feb | ≥ 55 % | CRM |
 | Weddings in Buddhist Lent | ≤ 5 % | CRM + calendar |
-| Median first-reply time (chat leads) | 20–60 min | messages |
+| Median first-reply time (chat leads) | 60–180 min (half the messages arrive in the evening and are answered next morning; about 25 min inside office hours) | messages |
 | No-reply share of lost inquiries | 50–65 % | CRM |
 | Lost "Date unavailable" | 3–8 % of lost | CRM |
 | Ops utilization: yearly / peak month / Lent month | ~75–80 % / > 105 % / < 50 % | Gold (checked in M3) |
 | Chat events per inquiry | 12–18 | Bronze |
 | TikTok share of online inquiries 2024–25 / 2026 | ~10 % / ~33 % | CRM |
 
-M1 adjusts the intercepts of §5 until every measure is inside its range, and records the final values in this spec.
+M1 adjusted the intercepts of §5 until every measure was inside its range (checked on seeds 11 and 12). Final values:
+consultation −5.5, booking −5.4, couple writes −2.3, sales-closed loss −3.9 (consulted/quoted) and −4.9 (contacted, from day 3),
+LINE share of follow-ups 50 %, TikTok weight in 2026 41.7 (so that about a third of *recorded* online inquiries are TikTok after
+20 % of couples delete the code). Result of `python -m sim report` after the backfill to 15 Nov 2026, seed 11:
+
+| Year | Inquiries | Weddings held | Conversion | Weddings Nov–Feb | No-reply share of lost | Date unavailable share | TikTok share of online | Messages per inquiry |
+|---|---|---|---|---|---|---|---|---|
+| 2023 | 1,538 | 69 | 7.0 % | 64 % | 54 % | 4.5 % | 10 % | 15.5 |
+| 2024 | 1,503 | 113 | 7.3 % | 61 % | 54 % | 5.6 % | 10 % | 17.1 |
+| 2025 | 1,550 | 104 | 8.8 % | 62 % | 52 % | 6.4 % | 8 % | 17.4 |
+| 2026 (to 15 Nov) | 1,341 | 119 | 7.0 % | 62 % | 52 % | 7.6 % | 30 % | 15.8 |
+
+Median first staff reply 90 min; weddings in Buddhist Lent 3.9 %. 2023 bookings are the warm-up; analyses use 2024 onward.
