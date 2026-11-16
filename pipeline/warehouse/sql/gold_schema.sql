@@ -88,6 +88,7 @@ CREATE TABLE gold."FactStaffWorkload" (
   "PlanningHours" numeric NOT NULL, "EventDayHours" numeric NOT NULL, "TotalHours" numeric NOT NULL,   -- unrounded: hours are conserved exactly
   PRIMARY KEY ("AssignmentID", "WeekStartDateKey"));
 CREATE INDEX ON gold."FactStaffWorkload" ("WeekStartDateKey", "EmployeeKey");
+CREATE INDEX ON gold."FactStaffWorkload" ("EventID");   -- mart_ops.v_week_detail looks up the other staff of each wedding
 
 -- grain: one logged follow-up
 CREATE TABLE gold."FactSalesActivity" (

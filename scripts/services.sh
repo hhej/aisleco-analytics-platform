@@ -11,7 +11,7 @@ port() { case $1 in gateway) echo 8001;; mlflow) echo 5050;; airflow) echo 8080;
 cmd() {
   case "$1" in
     gateway) echo "env GATEWAY_MODE=${GATEWAY_MODE:-sim} $PY -m sources.chat_gateway" ;;  # the business is simulated: honour X-Sim-Clock
-    mlflow)  echo "$ROOT/.venv/bin/mlflow server --host 127.0.0.1 --port 5050 --backend-store-uri postgresql:///mlflow --default-artifact-root $ROOT/lake/mlflow" ;;
+    mlflow)  echo "$ROOT/.venv/bin/mlflow server --host 127.0.0.1 --port 5050 --backend-store-uri postgresql+psycopg:///mlflow --default-artifact-root $ROOT/lake/mlflow" ;;
     airflow) echo "$ROOT/scripts/airflow.sh standalone" ;;
     web)     echo "$PY -m app.api" ;;
   esac

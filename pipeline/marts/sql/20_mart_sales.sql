@@ -46,7 +46,7 @@ FROM mart_sales.v_inquiry WHERE "IsOpen" = 1 AND "IsReplied" = 0 AND inquiry_dat
 CREATE OR REPLACE VIEW mart_sales.v_going_cold AS
 SELECT "InquiryID" AS inquiry_id, "CustomerID" AS customer_id, sales_owner_id, sales_owner, channel, furthest_stage, last_activity_date,
        gold.asof() - last_activity_date AS days_silent, last_activity_date + 30 AS auto_close_date
-FROM mart_sales.v_inquiry WHERE "IsOpen" = 1 AND gold.asof() - last_activity_date >= 10;
+FROM mart_sales.v_inquiry WHERE "IsOpen" = 1 AND gold.asof() - last_activity_date BETWEEN 10 AND 29;
 
 -- per salesperson: bookings this month and median first reply over the last 7 days
 CREATE OR REPLACE VIEW mart_sales.v_my_week AS
@@ -103,13 +103,22 @@ SELECT d."FullDate" AS day, e."Nickname" AS salesperson, count(*) AS listed,
 FROM gold."FactLeadScore" s JOIN gold."DimDate" d ON d."DateKey" = s."ScoreDateKey" JOIN gold."DimEmployee" e ON e."EmployeeKey" = s."SalesOwnerKey"
 WHERE s."IsHoldout" = 0 AND s."Rank" <= 15 GROUP BY 1, 2;
 
--- A/B: 30-day booking rate of prioritised vs holdout leads, from each lead's first score (Spec 04 §8)
+-- A/B: 60-day booking rate (the model's label window) of prioritised vs holdout leads, from each lead's first score (Spec 04 §8)
 CREATE OR REPLACE VIEW mart_sales.v_ab_result AS
 WITH first AS (SELECT DISTINCT ON ("InquiryID") "InquiryID", "ScoreDateKey", "IsHoldout" FROM gold."FactLeadScore" ORDER BY "InquiryID", "ScoreDateKey"),
-x AS (SELECT f."IsHoldout", (b."FullDate" IS NOT NULL AND b."FullDate" < sd."FullDate" + 30)::int AS booked30, sd."FullDate" AS first_score
+x AS (SELECT f."IsHoldout", (b."FullDate" IS NOT NULL AND b."FullDate" < sd."FullDate" + 60)::int AS booked60, sd."FullDate" AS first_score
       FROM first f JOIN gold."DimDate" sd ON sd."DateKey" = f."ScoreDateKey" JOIN gold."FactInquiry" i USING ("InquiryID")
       JOIN gold."DimDate" b ON b."DateKey" = i."BookingDateKey"
-      WHERE sd."FullDate" <= gold.asof() - 30)
-SELECT CASE WHEN "IsHoldout" = 1 THEN 'Standard queue (holdout)' ELSE 'Ranked list' END AS arm, count(*) AS leads, sum(booked30) AS booked_30d,
-       round(avg(booked30), 4) AS booking_rate_30d, min(first_score) AS from_date, max(first_score) AS to_date
+      WHERE sd."FullDate" <= gold.asof() - 60)
+SELECT CASE WHEN "IsHoldout" = 1 THEN 'Standard queue (holdout)' ELSE 'Ranked list' END AS arm, count(*) AS leads, sum(booked60) AS booked_60d,
+       round(avg(booked60), 4) AS booking_rate_60d, min(first_score) AS from_date, max(first_score) AS to_date
 FROM x GROUP BY 1;
+
+-- the A/B effect with a 95 % interval (two-proportion normal approximation)
+CREATE OR REPLACE VIEW mart_sales.v_ab_effect AS
+WITH t AS (SELECT * FROM mart_sales.v_ab_result WHERE arm = 'Ranked list'), h AS (SELECT * FROM mart_sales.v_ab_result WHERE arm <> 'Ranked list')
+SELECT t.leads AS ranked_leads, h.leads AS holdout_leads, t.booking_rate_60d AS ranked_rate, h.booking_rate_60d AS holdout_rate,
+       round(t.booking_rate_60d - h.booking_rate_60d, 4) AS effect,
+       round(t.booking_rate_60d - h.booking_rate_60d - 1.96 * sqrt(t.booking_rate_60d * (1 - t.booking_rate_60d) / t.leads + h.booking_rate_60d * (1 - h.booking_rate_60d) / h.leads), 4) AS effect_ci_low,
+       round(t.booking_rate_60d - h.booking_rate_60d + 1.96 * sqrt(t.booking_rate_60d * (1 - t.booking_rate_60d) / t.leads + h.booking_rate_60d * (1 - h.booking_rate_60d) / h.leads), 4) AS effect_ci_high
+FROM t CROSS JOIN h;

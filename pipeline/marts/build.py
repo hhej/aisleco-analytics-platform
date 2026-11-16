@@ -1,6 +1,8 @@
 """Gold → role marts (Spec 03 §7) and the reconciliation checks between Silver, Gold and marts (Spec 03 §8)."""
 from pathlib import Path
 
+from psycopg import sql
+
 from pipeline import db, meta
 from pipeline.quality import dq
 
@@ -24,6 +26,10 @@ CHECKS = {
 
 
 def marts(ctx, conn):
+    # CREATE OR REPLACE VIEW cannot rename or drop a column: drop the mart views first, so a changed view deploys
+    # (same transaction, so readers never see the marts missing)
+    for r in conn.execute("SELECT schemaname, viewname FROM pg_views WHERE schemaname LIKE 'mart\\_%'").fetchall():
+        conn.execute(sql.SQL("DROP VIEW IF EXISTS {} CASCADE").format(sql.Identifier(r["schemaname"], r["viewname"])))
     for f in sorted(SQL.glob("*.sql")):
         db.run_sql_file(conn, f)
     return {"views": conn.execute("SELECT count(*) AS n FROM information_schema.views WHERE table_schema LIKE 'mart_%'").fetchone()["n"]}

@@ -292,6 +292,11 @@ If the presentation is on day 7 or earlier, M6 and M10 drop first, then the Data
 | 2026-11-16 | D10 | Presentation 29 Nov, 15–20 min, two presenters | user |
 | 2026-11-16 | D11 | Use subagents for parallel work | user |
 | 2026-11-16 | C13 | Google's holiday feed has Asalha Bucha only to 2027: Lent after 2027 approximated and flagged | real data gap found in M1 |
+| 2026-11-16 | C19 | Lead-model label window 60 days (Spec 04 §2 rule: 30 d held 55 % of bookings, 45 d 72 %, 60 d 82 %) | pre-registered EDA rule |
+| 2026-11-16 | C20 | Gate compares with the best non-ML baseline (B0–B2); logistic vs LightGBM is CV model selection, ties → simpler | the first run compared logistic regression with itself |
+| 2026-11-16 | C21 | Training rows sampled at ages 1,2,3,4,5,7,10,14,21,30,45,60 days (weights per inquiry); test keeps every daily row | 3× faster tuning; each test day is a real decision |
+| 2026-11-16 | C22 | Forecast pipeline hours use point-in-time stage × channel rates, not Model A; pickup by LightGBM quantile regression; band split-conformal | leakage-free backtest; quantile band covered 48 %, conformal 79 % |
+| 2026-11-16 | C23 | Lead-model gate revised after run v2 (which I report): superiority over today's practice + non-inferiority (−0.05) vs the best rule; ablation moved from the test set to CV and picks the feature set | v2: PR-AUC 0.389 vs B0 0.129, vs B1 0.345 (gain CI −0.06..+0.16, underpowered); test-set ablation would leak |
 | 2026-11-16 | C15 | No separate monthly DAG: `ingest_files` pulls the holiday calendar on the 1st of the month (or when none exists) | one fewer moving part |
 | 2026-11-16 | C16 | FactStaffWorkload stores week shares unrounded; C03 tolerance 0.001 h | rounding each week to 3 decimals lost up to 0.016 h per assignment |
 | 2026-11-16 | C17 | Hours per wedding scaled by 0.87 (Spec 06 §3) | ops utilization averaged 89 % with 170 % peaks; now 78 % average, 110–144 % peaks, 33–48 % in Lent |

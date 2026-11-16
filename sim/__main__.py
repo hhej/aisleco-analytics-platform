@@ -25,7 +25,7 @@ from sim.engine import World
 from sources import settings
 
 CRM_DSN = os.environ.get("CRM_DSN", "dbname=aisleco_crm")
-TRUTH = settings.REPO / "var" / "sim_truth"
+TRUTH = Path(os.environ.get("SIM_STATE_DIR", settings.REPO / "var" / "sim_truth"))
 STATE = TRUTH / "state.pkl"
 
 
@@ -78,7 +78,8 @@ def gateway_up():
         return None
     log = settings.REPO / "var" / "log"
     log.mkdir(parents=True, exist_ok=True)
-    p = subprocess.Popen([sys.executable, "-m", "sources.chat_gateway"], env={**os.environ, "GATEWAY_MODE": "sim"},
+    port = io.GATEWAY.rsplit(":", 1)[1]
+    p = subprocess.Popen([sys.executable, "-m", "sources.chat_gateway"], env={**os.environ, "GATEWAY_MODE": "sim", "GATEWAY_PORT": port},
                          stdout=open(log / "gateway.log", "a"), stderr=subprocess.STDOUT, cwd=settings.REPO)
     for _ in range(50):
         _time.sleep(.2)
@@ -90,7 +91,22 @@ def gateway_up():
     sys.exit("could not start the chat gateway")
 
 
-def run(to, ranker=None):
+DW_DSN = os.environ.get("DW_DSN", "dbname=aisleco_dw")
+
+
+def list_ranker(d, world):
+    """From model launch on, salespeople work the day's ranked list (gold.FactLeadScore, holdout excluded, Spec 04 §8);
+    before launch, or on a day without scores, they work newest-first as today (returns None)."""
+    try:
+        with psycopg.connect(DW_DSN, connect_timeout=3) as c:
+            rows = c.execute('SELECT "InquiryID" FROM gold."FactLeadScore" WHERE "ScoreDateKey" = %s AND "IsHoldout" = 0 '
+                             'ORDER BY "Rank"', (int(d.strftime("%Y%m%d")),)).fetchall()
+    except psycopg.Error:
+        return None
+    return [r[0] for r in rows] or None
+
+
+def run(to, ranker=list_ranker):
     w = pickle.loads(STATE.read_bytes())
     w.ranker = ranker
     started = gateway_up()

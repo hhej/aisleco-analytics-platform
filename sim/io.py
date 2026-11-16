@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 from datetime import date, datetime, timedelta, timezone
 
 import httpx
@@ -17,7 +18,7 @@ KEY = {"EmployeeRole": "RoleID", "MarketingChannel": "ChannelID", "Package": "Pa
        "EmployeeContract": "ContractID", "Customer": "CustomerID", "CustomerChannelAccount": "CustomerAccountID",
        "CustomerContact": "CustomerContactID", "Inquiry": "InquiryID", "ChatMessage": "ChatMessageID", "Event": "EventID",
        "EventEmployeeAssignment": "EventEmployeeAssignmentID", "SalesActivity": "ActivityID"}
-GATEWAY = "http://127.0.0.1:8001"
+GATEWAY = os.environ.get("GATEWAY_URL", "http://127.0.0.1:8001")
 LINE_NEW_FIELD_FROM = date(2026, 9, 1)     # LINE adds a field to message events (schema-change test, Spec 06 §7)
 q = lambda name: f'"{name}"'
 

@@ -69,11 +69,13 @@ def file_views(con, cfg, conn):
     con.execute("CREATE SCHEMA IF NOT EXISTS bronze; CREATE SCHEMA IF NOT EXISTS ext; CREATE SCHEMA IF NOT EXISTS ref")
     cp = conn.execute("SELECT source, bronze_path, run_id FROM etl.file_checkpoint").fetchall()
     con.execute("CREATE TABLE ref.file_run(path VARCHAR, run_id INTEGER, source VARCHAR)")
-    if cp:
-        con.executemany("INSERT INTO ref.file_run VALUES (?, ?, ?)", [(str(cfg.lake_dir / r["bronze_path"]), r["run_id"], r["source"]) for r in cp])
+    if cp:     # one bulk insert: executemany is row by row in DuckDB (seconds for a few years of hourly chat files)
+        con.execute("INSERT INTO ref.file_run SELECT unnest(?), unnest(?), unnest(?)",
+                    [[str(cfg.lake_dir / r["bronze_path"]) for r in cp], [r["run_id"] for r in cp], [r["source"] for r in cp]])
     chat = cfg.bronze / "chat"
     if any(chat.glob("platform=*")):
-        con.execute(f'''CREATE VIEW bronze.chat AS SELECT c.*, f.run_id AS _run_id FROM read_json('{chat}/platform=*/*/*/events.jsonl',
+        # a table, not a view: two Silver files read it, and reading thousands of small files is the slow part
+        con.execute(f'''CREATE TABLE bronze.chat AS SELECT c.*, f.run_id AS _run_id FROM read_json('{chat}/platform=*/*/*/events.jsonl',
             format='newline_delimited', columns={{received_at: 'VARCHAR', platform: 'VARCHAR', body: 'VARCHAR', body_sha256: 'VARCHAR'}},
             filename=true, hive_partitioning=false) c LEFT JOIN ref.file_run f ON f.path = c.filename''')
     else:

@@ -46,8 +46,8 @@ version with `ValidFrom ≤ d ≤ ValidTo`. Example (Appendix B.5 of Rev10): Nin
 `DimEmployee` holds two rows for Nina; workload in the week of 11 Jan joins the 44-hour row, the week of 8 Feb the 36-hour row.
 No week is frozen: a late correction to an assignment flows into history, and rule C03b counts such late changes.
 
-**Surrogate key management.** Keys are assigned by `MERGE` on the natural key (`EmployeeID + ValidFrom` for DimEmployee,
-the source ID otherwise). A key never changes once issued; reloading the same data issues no new keys.
+**Surrogate key management.** Keys are assigned by upsert on the natural key (`ContractID` for DimEmployee, one contract = one
+version; the source ID otherwise). A key never changes once issued; reloading the same data issues no new keys.
 
 ## 4. Facts
 
@@ -153,11 +153,11 @@ then divide once. Averages of ratios are never used. Each KPI is a mart view col
 | Capacity hours | `DimEmployee.StandardWeeklyHours` of the version valid on the week's Monday; 0 if no contract | employee × week | from SCD2 |
 | Utilization | Assigned hours ÷ Capacity hours | employee × week; team or role = Σ assigned ÷ Σ capacity | ratio of sums |
 | Overtime hours | Σ over employee-weeks of max(0, assigned − capacity) | computed per employee-week, then summed | a team's spare hours never cancel one person's overtime |
-| Over-capacity person-weeks | count of employee-weeks with utilization > 100 % | | |
-| Concurrent weddings | count of distinct EventID with hours in the week | employee × week | compared with MaxConcurrentEvents |
+| Over-capacity person-weeks | count of employee-weeks with assigned hours at or above capacity (status Over) | | |
+| Weddings in the week | count of distinct EventID with wedding-day hours in the week (`active_weddings` also counts weddings with only planning hours) | employee × week | compared with MaxConcurrentEvents (weddings a person can run in one week) |
 | Peak-date acceptance rate | inquiries with a requested date in Nov–Feb or on an auspicious date that booked ÷ those of them that are decided (not open) | by requested month | Rev10 definition, decided only |
 | Turned-away demand | count of inquiries lost with reason "Date unavailable" | by requested month and auspicious level | |
-| Fee at stake (turned away) | turned-away count × median fee of booked weddings of the same package family in the last 12 months × booking rate of quoted leads | by requested month | labelled "estimate" |
+| Fee at stake (turned away) | turned-away count × median fee of booked weddings in the last 12 months × booking rate of quoted leads | by requested month | labelled "estimate"; the same rule values other lost reasons, counting only couples who reached a quote |
 | Staff hours per wedding | Σ PlannedHoursTotal ÷ count of weddings | by package family, guest band, complexity | input for pricing and staffing |
 | Forecast hours, capacity status | Spec 04 §11; status Over ≥ 100 %, Tight 85–100 %, OK 50–85 %, Quiet < 50 % of capacity | role group × week | thresholds in `catalog/kpis.yml` |
 
@@ -167,7 +167,7 @@ then divide once. Averages of ratios are never used. Each KPI is a mart view col
 |---|---|---|---|
 | Inquiries | Σ InquiryCount | any | additive |
 | Conversion rate (cohort) | Σ IsBooked ÷ (Σ InquiryCount − Σ IsOpen) for inquiries **received** in the period | by inquiry month, channel, package of interest | open leads excluded until decided |
-| Stage reach | consult rate = Σ IsConsulted ÷ Σ InquiryCount; quote rate = Σ IsQuoted ÷ Σ IsConsulted; close rate = Σ IsBooked ÷ Σ IsQuoted | funnel | each step on the previous step |
+| Stage reach | each step on the previous one: replied ÷ inquiries, consulted ÷ replied, quoted ÷ consulted, booked ÷ quoted | funnel | ratio of sums |
 | First-reply time | median of ResponseMinutes (bot excluded); share in each band | by channel, hour of arrival, responder | median, never mean |
 | Reply-speed effect | conversion rate by response band | | the evening-shift question |
 | Sales-cycle days | median DaysToBook | booked only | |
@@ -176,7 +176,7 @@ then divide once. Averages of ratios are never used. Each KPI is a mart view col
 | Quote share of budget | QuotedAmount ÷ BudgetMidpoint per inquiry, then the median per group | by outcome (booked vs lost on price) | per-row ratio is valid here: the question is about each couple's share |
 | Follow-up compliance | follow-ups done on listed leads ÷ leads listed | salesperson × day | from FactSalesActivity and FactLeadScore |
 | Pipeline value | Σ ExpectedFee of today's open leads | today | expectation, labelled as such |
-| Model lift (A/B) | conversion of prioritised leads − conversion of holdout leads, 95 % bootstrap interval | since model launch | Spec 04 §8 |
+| Model lift (A/B) | 60-day booking rate of prioritised leads − that of holdout leads, 95 % interval (two-proportion normal approximation, `v_ab_effect`) | since model launch | Spec 04 §8 |
 
 ### Executive
 
@@ -188,14 +188,14 @@ then divide once. Averages of ratios are never used. Each KPI is a mart view col
 
 ## 7. Marts and access control
 
-Each mart is a set of views named after the page tile they feed (`v_<page>_<tile>`). Dashboards read marts only.
+Each mart is a set of views named after what they answer. Dashboards read marts only. The mart step drops and recreates the four mart schemas each run (views only), then re-applies the grants.
 
 | Mart | Views (main) | Database role | Also granted |
 |---|---|---|---|
-| `mart_sales` | `v_today_list` (today's scored open leads with reasons, next best action, requested-date capacity badge), `v_new_today`, `v_going_cold`, `v_my_week`, `v_funnel`, `v_conversion_by_channel_month`, `v_response_by_hour`, `v_lost_reasons`, `v_quote_share`, `v_followup_compliance`, `v_ab_result` | `aisleco_sales` | `sales_pii` (SELECT) |
+| `mart_sales` | `v_today_list` (today's scored open leads with reasons, next best action, requested-date capacity badge), `v_new_today`, `v_going_cold`, `v_my_week`, `v_funnel`, `v_conversion_by_channel_month`, `v_response_by_hour`, `v_lost_reasons`, `v_quote_share`, `v_followup_compliance`, `v_ab_result` | `aisleco_sales` | `sales_pii` (SELECT), `mart_ops.v_date_check` (the shared date checker) |
 | `mart_ops` | `v_capacity_grid` (employee × week: assigned, capacity, utilization, overtime, concurrent), `v_week_detail` (which weddings make up a person's week), `v_forward_demand` (forecast by role group × week), `v_date_check` (per date: weddings booked, role headroom, auspicious level, alternatives), `v_peak_acceptance`, `v_turned_away`, `v_hours_per_wedding` | `aisleco_ops` | — |
-| `mart_exec` | `v_kpi_tiles` (with targets and previous period), `v_bookings_month`, `v_conversion_trend`, `v_channel_mix`, `v_capacity_outlook`, `v_lost_reasons`, `v_model_value` | `aisleco_exec` | `mart_ops`, and the non-personal views of `mart_sales` |
-| `mart_platform` | `v_runs`, `v_step_times`, `v_dq_results`, `v_quarantine`, `v_freshness`, `v_model_performance`, `v_drift`, `v_registry` | `aisleco_data` | everything (data team) |
+| `mart_exec` | `v_monthly_kpis` (one row per month: bookings, fee revenue, weddings held, conversion, first reply, utilization, overtime, turned away; the page compares months), `v_channel_mix`, `v_capacity_outlook`, `v_lost_value`, `v_model_value` | `aisleco_exec` | `mart_ops`, and the non-personal views of `mart_sales` |
+| `mart_platform` | `v_runs`, `v_step_times`, `v_dq_results`, `v_quarantine`, `v_freshness`, `v_alerts`, `v_model_runs` (registry record of every training run), `v_model_monitor` (drift, calibration, matured-label performance) | `aisleco_data` | everything (data team) |
 
 Rules enforced by PostgreSQL, not only by the web app:
 - each role has `USAGE` on its schemas and `SELECT` on their views, nothing else; no role can read `gold`, `stg` or `etl` directly

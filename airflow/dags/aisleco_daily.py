@@ -70,3 +70,11 @@ with DAG(
             start >> tasks[name]
         for up in ups:
             tasks[up] >> tasks[name]
+    # the models' daily steps (Spec 04 §7, §9): score today's open inquiries with the champion, then monitor
+    ml_score = BashOperator(task_id="ml_score", cwd=ROOT, env=ENV, append_env=True, bash_command=f"{PY} -m ml score --asof {ASOF}",
+                            doc_md="Lead scores, reasons and next best action → gold.FactLeadScore (the Sales list)")
+    ml_monitor = BashOperator(task_id="ml_monitor", cwd=ROOT, env=ENV, append_env=True, bash_command=f"{PY} -m ml monitor --asof {ASOF}",
+                              doc_md="Drift (PSI), missing shares, matured-label performance → ml.monitor; alerts → etl.alert")
+    ml_forecast = BashOperator(task_id="ml_forecast", cwd=ROOT, env=ENV, append_env=True, bash_command=f"{PY} -m ml forecast --asof {ASOF}",
+                               doc_md="Staff-hours by role group for 26 weeks (booked + pipeline + pickup, backtested) → gold.FactDemandForecast")
+    tasks["finish"] >> ml_score >> [ml_monitor, ml_forecast]

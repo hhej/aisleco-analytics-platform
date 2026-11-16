@@ -47,7 +47,7 @@ The full data dictionary and the ER diagram are generated in M1 (`sources/crm/ol
 |---|---|---|---|---|
 | Inquiry, ChatMessage, Event, EventEmployeeAssignment, SalesActivity | transaction | **Incremental** by `UpdatedAt` watermark + full primary-key list | all | `bronze/crm/<Table>/load_date=D/run=N/` |
 | MarketingChannel, Package, EmployeeRole, Employee, EmployeeContract | master | **Full snapshot** every run | all (staff names are operational data) | same |
-| Customer, CustomerContact, CustomerChannelAccount | master with personal data | **Full snapshot of allowed columns only**, restricted folder | CustomerID; primary contact's first name; platform display name; phone (masked in Silver, hashed for matching) | `bronze/crm_restricted/<Table>/load_date=D/run=N/` (folder mode 700) |
+| CustomerContact, CustomerChannelAccount | master with personal data | **Full snapshot of allowed columns only**, restricted folder | CustomerID; primary contact's first name; platform display name; phone (masked in Silver, hashed for matching). `Customer` (district, province) is not extracted: no KPI uses it. | `bronze/crm_restricted/<Table>/load_date=D/run=N/` (folder mode 700) |
 
 ### 2.3 How the incremental extraction works
 
@@ -135,7 +135,7 @@ Replies typed in the LINE phone app bypass the inbox and are **not** logged (a k
    `{"received_at": "...", "platform": "...", "body": "<raw body string>", "body_sha256": "..."}`. The raw string is kept
    so the signature can be re-checked later. `fsync`, then answer `200`. Target: under 100 ms.
 3. No deduplication at the gateway. Platforms resend an event when they do not get a fast `200`; Silver removes duplicates
-   by `webhookEventId` (LINE) and `message.mid` (Meta).
+   by the platform message ID (LINE `message.id`, Meta `message.mid`); a re-delivered LINE event carries the same IDs.
 4. Sim mode only: the header `X-Sim-Clock` sets `received_at` to the simulated time, so a backfill lands in the right date
    partitions. Ignored when `GATEWAY_MODE=production`.
 

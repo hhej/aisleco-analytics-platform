@@ -52,3 +52,4 @@ GRANT INSERT ON "transaction"."SalesActivity" TO crm_app_writer;
 GRANT USAGE ON SEQUENCE "transaction"."SalesActivity_ActivityID_seq" TO crm_app_writer;
 GRANT SELECT ("ActivityID", "InquiryID", "EmployeeID", "ActivityAt", "ActivityType", "Outcome", "Source", "ListDate")
   ON "transaction"."SalesActivity" TO crm_app_writer;
+GRANT USAGE ON SCHEMA aisleco TO crm_app_writer;   -- the stamp trigger calls aisleco.clock() as the inserting role

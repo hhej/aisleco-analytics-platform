@@ -31,18 +31,25 @@ FROM mart_sales.v_inquiry GROUP BY 1, 2;
 
 -- capacity outlook by month and role group: hours already booked vs capacity (and the forecast once it exists)
 CREATE OR REPLACE VIEW mart_exec.v_capacity_outlook AS
-SELECT to_char(r.week_start, 'YYYY-MM') AS month, r.role_group, sum(r.capacity_hours) AS capacity_hours, sum(r.assigned_hours) AS booked_hours,
-       sum(f.p50_hours) AS forecast_hours, round(coalesce(sum(f.p50_hours), sum(r.assigned_hours)) / nullif(sum(r.capacity_hours), 0), 4) AS expected_utilization
-FROM mart_ops.v_role_week r LEFT JOIN mart_ops.v_forward_demand f USING (week_start, role_group)
-WHERE r.week_start BETWEEN date_trunc('month', gold.asof()) AND gold.asof() + 183 GROUP BY 1, 2;
+WITH w AS (SELECT r.week_start, r.role_group, r.capacity_hours, r.assigned_hours, f.p50_hours,
+                  coalesce(f.p50_hours, r.assigned_hours) AS expected_hours      -- per week: the forecast where it exists, else booked
+           FROM mart_ops.v_role_week r LEFT JOIN mart_ops.v_forward_demand f USING (week_start, role_group)
+           WHERE r.week_start BETWEEN date_trunc('month', gold.asof()) AND gold.asof() + 183)
+SELECT to_char(week_start, 'YYYY-MM') AS month, role_group, sum(capacity_hours) AS capacity_hours, sum(assigned_hours) AS booked_hours,
+       sum(p50_hours) AS forecast_hours, sum(expected_hours) AS expected_hours,
+       round(sum(expected_hours) / nullif(sum(capacity_hours), 0), 4) AS expected_utilization
+FROM w GROUP BY 1, 2;
 
--- lost couples over the last 12 months by reason, with the fee at stake (estimate: median fee x booking rate of quoted leads)
+-- lost couples over the last 12 months by reason, with the fee at stake (estimate: median fee x booking rate of quoted leads,
+-- applied to the couples who reached a quote; couples turned away for the date count in full, as they never got the chance)
 CREATE OR REPLACE VIEW mart_exec.v_lost_value AS
-WITH fee AS (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY "AgreedFee") AS median_fee FROM gold."FactEventBooking" WHERE "IsCancelled" = 0),
+WITH fee AS (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY "AgreedFee") AS median_fee FROM gold."FactEventBooking"
+             WHERE "IsCancelled" = 0 AND "BookingDateKey" >= gold.dk(gold.asof() - 365)),        -- same basis as v_turned_away
      close AS (SELECT sum("IsBooked")::numeric / nullif(sum("IsQuoted"), 0) AS rate FROM gold."FactInquiry" WHERE "IsOpen" = 0)
-SELECT lost_reason, closed_by, count(*) AS lost, round(count(*) FILTER (WHERE "IsQuoted" = 1) * (SELECT median_fee FROM fee) * (SELECT rate FROM close)) AS fee_at_stake_estimate
+SELECT lost_reason, closed_by, count(*) AS lost, round(count(*) FILTER (WHERE "IsQuoted" = 1 OR lost_reason = 'Date unavailable') * (SELECT median_fee FROM fee) * (SELECT rate FROM close)) AS fee_at_stake_estimate
 FROM mart_sales.v_inquiry i JOIN gold."DimDate" cd ON cd."DateKey" = i."ClosedDateKey"
 WHERE outcome = 'Lost' AND cd."FullDate" > gold.asof() - 365 GROUP BY 1, 2;
 
 -- is the call list paying off (A/B result so far)
 CREATE OR REPLACE VIEW mart_exec.v_model_value AS SELECT * FROM mart_sales.v_ab_result;
+CREATE OR REPLACE VIEW mart_exec.v_model_effect AS SELECT * FROM mart_sales.v_ab_effect;

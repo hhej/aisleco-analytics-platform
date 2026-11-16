@@ -17,3 +17,11 @@ CREATE OR REPLACE VIEW mart_platform.v_freshness AS
 SELECT source, max(ingested_at) AS last_ingested, count(*) AS files, max(run_id) AS last_run FROM etl.file_checkpoint GROUP BY 1
 UNION ALL SELECT 'crm:' || source_table, changed_at, NULL, last_run_id FROM etl.watermark;
 CREATE OR REPLACE VIEW mart_platform.v_alerts AS SELECT * FROM etl.alert;
+-- models: every training run with its decision, monitoring results (created by `python -m ml init`)
+DO $$ BEGIN
+  IF to_regclass('ml.model_run') IS NOT NULL THEN
+    EXECUTE 'CREATE OR REPLACE VIEW mart_platform.v_model_runs AS SELECT model, version, trained_at, asof_date, algorithm, train_window, test_window,
+             train_rows, test_rows, status, decision, metrics, params FROM ml.model_run';
+    EXECUTE 'CREATE OR REPLACE VIEW mart_platform.v_model_monitor AS SELECT * FROM ml.monitor';
+  END IF;
+END $$;

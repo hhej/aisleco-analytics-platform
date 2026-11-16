@@ -60,7 +60,7 @@ business date, so a late or corrected record lands in a new partition instead of
 | Bronze chat | JSON lines: `received_at`, `platform`, raw `body` string, `body_sha256` | the gateway's envelope | text purged 2 years after the inquiry closes (metadata kept) | data team; text only by the restricted ML job |
 | Bronze tablet, external | as dropped | file checkpoint row in `etl.file_checkpoint` (name, size, SHA-256, run) | indefinite | data team |
 | Bronze CRM restricted | CSV | manifest | last 90 days of snapshots | restricted job only |
-| Silver | Parquet, ZSTD; one file per table at 1× volume, partitioned by year above 1 M rows | every row carries `_run_id` (the run that built it) and `_source` (Bronze path pattern) | current build + previous build | data team, ML, warehouse load |
+| Silver | Parquet, ZSTD; one file per table at 1× volume, partitioned by year above 1 M rows | `_run_id` (the run that delivered the row) is used inside the build for the reject-rate rule and the quarantine, not published; the run log records which run built each table | current build + previous build | data team, ML, warehouse load |
 | Quarantine | JSON lines | rule, severity, reason, full record, first-seen run, resolved run | 90 days after it is resolved | data team |
 
 Silver is rebuilt **in full** from Bronze on every run, then swapped in atomically: tables are written to
@@ -89,14 +89,14 @@ All SQL is in `pipeline/silver/sql/NN_<table>.sql` (DuckDB dialect), one file pe
   5. Flags: high season (month in Nov, Dec, Jan, Feb), Valentine's Day (from the ICS), weekend, public holiday.
   6. Week start = the Monday of the ISO week.
 - **out**: `date, week_start, iso_year, iso_week, month, year, is_weekend, holiday_name, is_public_holiday, is_buddhist_lent,
-  is_high_season, is_valentine, auspicious_level, auspicious_types`.
+  is_high_season, is_valentine, auspicious_level, auspicious_types, lent_source` (`ics` or `approximated`).
 
 ### 4.2 `channel`, `package`, `employee_contract`
 - **in**: the latest snapshot of MarketingChannel; Package; Employee + EmployeeContract + EmployeeRole.
 - **grain**: channel; package price version; employee contract version.
 - **steps**: type casting; trimming; code-and-description pairs kept (Ch.5); `package_family` = package name without the
   price version; contract rows joined to the employee's name and the role name; contracts checked for overlap (rule R13).
-- **out (employee_contract)**: `contract_id, employee_id, employee_code, nickname, role_name, employment_type,
+- **out (employee_contract)**: `contract_id, employee_id, employee_code, nickname, role_name, role_group, employment_type,
   standard_weekly_hours, max_concurrent_events, effective_from, effective_to (null = open), hire_date, status`.
 
 ### 4.3 `chat_message`

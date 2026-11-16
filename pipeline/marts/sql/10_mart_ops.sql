@@ -4,7 +4,9 @@
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS mart_ops;
 
--- one row per employee (ops roles) per week the employee has a contract, including weeks with no work
+-- one row per employee (ops roles) per week the employee has a contract, including weeks with no work.
+-- weddings = weddings worked that week (wedding-day hours), compared with the contract's MaxConcurrentEvents;
+-- active_weddings = every wedding with any hours that week (planning included)
 CREATE OR REPLACE VIEW mart_ops.v_capacity_grid AS
 WITH weeks AS (SELECT DISTINCT "WeekStart" AS week_start FROM gold."DimDate" WHERE "DateKey" <> -1),
 grid AS (
@@ -15,11 +17,12 @@ grid AS (
   WHERE e."RoleGroup" IN ('Planning', 'Wedding day')),
 hrs AS (
   SELECT d."WeekStart" AS week_start, e."EmployeeID" AS employee_id, sum(f."TotalHours") AS assigned_hours,
-         sum(f."PlanningHours") AS planning_hours, sum(f."EventDayHours") AS event_day_hours, count(DISTINCT f."EventID") AS weddings
+         sum(f."PlanningHours") AS planning_hours, sum(f."EventDayHours") AS event_day_hours, count(DISTINCT f."EventID") AS active_weddings,
+         count(DISTINCT f."EventID") FILTER (WHERE f."EventDayHours" > 0) AS weddings
   FROM gold."FactStaffWorkload" f JOIN gold."DimDate" d ON d."DateKey" = f."WeekStartDateKey"
   JOIN gold."DimEmployee" e ON e."EmployeeKey" = f."EmployeeKey" GROUP BY 1, 2)
 SELECT g.*, coalesce(h.assigned_hours, 0) AS assigned_hours, coalesce(h.planning_hours, 0) AS planning_hours,
-       coalesce(h.event_day_hours, 0) AS event_day_hours, coalesce(h.weddings, 0) AS weddings,
+       coalesce(h.event_day_hours, 0) AS event_day_hours, coalesce(h.weddings, 0) AS weddings, coalesce(h.active_weddings, 0) AS active_weddings,
        round(coalesce(h.assigned_hours, 0) / nullif(g.capacity_hours, 0), 4) AS utilization,
        greatest(0, coalesce(h.assigned_hours, 0) - g.capacity_hours) AS overtime_hours,
        coalesce(h.weddings, 0) > g.max_concurrent AS over_concurrency,
@@ -64,16 +67,19 @@ JOIN gold."DimDate" fd ON fd."DateKey" = f."ForecastDateKey" JOIN gold."DimDate"
 WHERE f."ForecastDateKey" = (SELECT max("ForecastDateKey") FROM gold."FactDemandForecast");
 
 -- one row per future date: weddings booked that day and week, headroom per role group, auspicious level
+-- (role-week totals computed once and joined, not per date)
 CREATE OR REPLACE VIEW mart_ops.v_date_check AS
 WITH ev AS (SELECT d."FullDate" AS day, count(*) AS weddings FROM gold."FactEventBooking" b JOIN gold."DimDate" d ON d."DateKey" = b."EventDateKey"
-            WHERE b."IsCancelled" = 0 GROUP BY 1)
+            WHERE b."IsCancelled" = 0 AND d."FullDate" >= gold.asof() - 7 GROUP BY 1),
+     wk AS (SELECT date_trunc('week', day)::date AS week_start, sum(weddings) AS weddings FROM ev GROUP BY 1),
+     rw AS (SELECT week_start, sum(capacity_hours - assigned_hours) FILTER (WHERE role_group = 'Planning') AS planning_headroom_hours,
+                   sum(capacity_hours - assigned_hours) FILTER (WHERE role_group = 'Wedding day') AS wedding_day_headroom_hours
+            FROM mart_ops.v_role_week WHERE week_start >= gold.asof() - 7 GROUP BY 1)
 SELECT d."FullDate" AS date, d."DayName" AS day_name, d."WeekStart" AS week_start, d."AuspiciousLevel" AS auspicious_level,
        d."IsBuddhistLent" AS in_lent, d."IsHighSeason" AS high_season, d."HolidayName" AS holiday,
-       coalesce(ev.weddings, 0) AS weddings_that_day,
-       (SELECT coalesce(sum(e2.weddings), 0) FROM ev e2 WHERE e2.day BETWEEN d."WeekStart" AND d."WeekStart" + 6) AS weddings_that_week,
-       (SELECT capacity_hours - assigned_hours FROM mart_ops.v_role_week r WHERE r.week_start = d."WeekStart" AND r.role_group = 'Planning') AS planning_headroom_hours,
-       (SELECT capacity_hours - assigned_hours FROM mart_ops.v_role_week r WHERE r.week_start = d."WeekStart" AND r.role_group = 'Wedding day') AS wedding_day_headroom_hours
-FROM gold."DimDate" d LEFT JOIN ev ON ev.day = d."FullDate"
+       coalesce(ev.weddings, 0) AS weddings_that_day, coalesce(wk.weddings, 0) AS weddings_that_week,
+       rw.planning_headroom_hours, rw.wedding_day_headroom_hours
+FROM gold."DimDate" d LEFT JOIN ev ON ev.day = d."FullDate" LEFT JOIN wk ON wk.week_start = d."WeekStart" LEFT JOIN rw ON rw.week_start = d."WeekStart"
 WHERE d."FullDate" >= gold.asof();
 
 -- peak-date acceptance by requested month: decided inquiries for Nov-Feb or auspicious dates that booked

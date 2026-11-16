@@ -1,0 +1,318 @@
+# KPI catalog (Spec 03 §6). One entry per number shown in the web app. The API serves this file at /api/catalog/kpis and
+# every KPI tile shows its definition. Later feeds the data-catalog page (M8).
+#   level: where the division happens. "Ratio of sums" = sum numerator and denominator over the whole group, divide once.
+#   source: the mart view and column the page reads (pages read marts only).
+#   target: management target shown beside the KPI, where one is set.
+version: 1
+status_thresholds:
+  capacity: {Over: ">= 100 % of capacity", Tight: "85-100 %", OK: "50-85 %", Quiet: "< 50 %"}
+  date_badge: {Full: "2+ weddings that day, or a role group has negative headroom that week", Tight: "1 wedding that day, or headroom under 20 h", Room: "otherwise"}
+kpis:
+  # ---------------- Sales: Today ----------------
+  - id: followups_done
+    label: Follow-ups done today
+    unit: count
+    definition: Couples on today's call list you have marked as contacted today, out of the list size.
+    formula: count of distinct InquiryID in CRM SalesActivity with Source = 'CallList' and ListDate = today, for this salesperson
+    level: salesperson x day
+    source: aisleco_crm transaction."SalesActivity" (read back by crm_app_writer); list size = rank <= 15 in mart_sales.v_today_list
+    target: 15
+  - id: bookings_this_month
+    label: Bookings this month
+    unit: count
+    definition: Couples you own who booked in the current calendar month (month to date).
+    formula: count of inquiries with BookingDateKey in the current month, by sales owner
+    level: salesperson x month
+    source: mart_sales.v_my_week.bookings_this_month
+    target: 8
+  - id: median_first_reply_7d
+    label: Median first reply, last 7 days
+    unit: minutes
+    definition: Half of the couples who wrote in the last 7 days got their first reply from you faster than this.
+    formula: median of ResponseMinutes for inquiries received in the last 7 days, by sales owner
+    level: salesperson, last 7 days
+    source: mart_sales.v_my_week.median_first_reply_min_7d
+    target: 60
+  - id: chance_to_book
+    label: Chance to book
+    unit: "%"
+    definition: How likely this couple is to book with us, estimated each morning from couples like them in the past.
+    formula: lead model probability of booking (Spec 04); High / Medium / Low band
+    level: inquiry x score date
+    source: mart_sales.v_today_list.probability, band
+  - id: expected_fee
+    label: Expected fee
+    unit: THB
+    definition: The fee we can expect from this couple, weighted by their chance to book. An expectation, not a promise.
+    formula: probability x estimated fee for the couple's package and budget
+    level: inquiry x score date
+    source: mart_sales.v_today_list.expected_fee
+  - id: date_badge
+    label: Requested date
+    unit: status
+    definition: Can we still take a wedding on the date the couple asked for? Room, Tight or Full.
+    formula: Full if 2+ weddings that day or a role group's headroom that week < 0 h; Tight if 1 wedding or headroom < 20 h; else Room
+    level: requested date
+    source: mart_sales.v_today_list.date_badge (from mart_ops.v_date_check)
+  - id: days_silent
+    label: Days silent
+    unit: days
+    definition: Days since the last contact with this couple. Open leads silent for 30 days close automatically.
+    formula: as-of date - last activity date; auto-close date = last activity date + 30
+    level: inquiry
+    source: mart_sales.v_going_cold.days_silent, auto_close_date
+
+  # ---------------- Sales performance ----------------
+  - id: inquiries
+    label: Inquiries
+    unit: count
+    definition: Couples who contacted us, counted once per inquiry.
+    formula: sum of InquiryCount
+    level: any (additive)
+    source: mart_sales.v_funnel.inquiries
+  - id: stage_rate
+    label: Step rate
+    unit: "%"
+    definition: Share of couples who reached a step out of those who reached the step before.
+    formula: replied / inquiries; consulted / replied; quoted / consulted; booked / quoted
+    level: ratio of sums over the month's inquiries
+    source: mart_sales.v_funnel (replied, consulted, quoted, booked)
+  - id: conversion_rate
+    label: Conversion
+    unit: "%"
+    definition: Of the couples who wrote in a period and are now decided (booked or lost), the share who booked. Open leads wait until decided.
+    formula: sum(IsBooked) / (sum(InquiryCount) - sum(IsOpen)) for inquiries received in the period
+    level: ratio of sums by inquiry month (cohort); shown once 90 % of the month's inquiries are decided
+    source: mart_exec.v_monthly_kpis.conversion; mart_sales.v_conversion_by_channel_month
+  - id: conversion_interval
+    label: 95 % range
+    unit: "%"
+    definition: The range the true conversion rate probably lies in. Few couples give a wide range.
+    formula: Wilson 95 % interval on booked and decided, summed over the last 12 complete months
+    level: channel, 12 months
+    source: mart_sales.v_conversion_by_channel_month (booked, decided)
+  - id: reply_band_conversion
+    label: Conversion by reply speed
+    unit: "%"
+    definition: Conversion of couples grouped by how fast they got their first reply.
+    formula: sum(IsBooked) / decided, by ResponseBand
+    level: ratio of sums by reply band, all history
+    source: mart_sales.v_response_band.conversion
+  - id: arrivals_by_hour
+    label: Inquiries by hour and weekday
+    unit: count
+    definition: When online couples write to us, and the median wait for a first reply at that hour.
+    formula: count of online inquiries by first-message hour and weekday; median ResponseMinutes
+    level: hour x weekday, all history
+    source: mart_sales.v_response_by_hour
+  - id: lost_reason_share
+    label: Lost couples by reason
+    unit: count
+    definition: Couples lost each month, by reason. "No reply" are closed automatically after 30 silent days; the rest by a salesperson.
+    formula: count of inquiries with outcome Lost, by closing month, closed by and reason
+    level: closing month
+    source: mart_sales.v_lost_reasons.lost
+  - id: quote_share
+    label: Quote share of budget
+    unit: "%"
+    definition: The quoted price as a share of the couple's stated budget. Compared for couples who booked and couples lost on price.
+    formula: QuotedAmount / BudgetMidpoint per couple, then the median per group
+    level: per inquiry (a per-couple ratio is valid here), median by outcome group
+    source: mart_sales.v_quote_share.quote_share
+    target: 0.16
+  - id: followup_compliance
+    label: Follow-up compliance
+    unit: "%"
+    definition: Of the couples on the daily call lists in the last 4 weeks, the share contacted on the day they were listed.
+    formula: sum(contacted) / sum(listed), listed = rank <= 15 and not holdout
+    level: ratio of sums over salesperson x day, last 28 days
+    source: mart_sales.v_followup_compliance (listed, contacted)
+
+  # ---------------- Operations ----------------
+  - id: utilization
+    label: Utilization
+    unit: "%"
+    definition: Hours assigned to a person in a week as a share of their contracted hours. Above 100 % is overtime.
+    formula: assigned hours / capacity hours; for a team or role group sum(assigned) / sum(capacity)
+    level: employee x week; ratio of sums for groups
+    source: mart_ops.v_capacity_grid.utilization; mart_ops.v_role_week.utilization
+  - id: assigned_hours
+    label: Assigned hours
+    unit: h
+    definition: Planning and wedding-day hours of the weddings a person works on, spread over the weeks the work happens.
+    formula: sum of FactStaffWorkload.TotalHours
+    level: employee x week (additive)
+    source: mart_ops.v_capacity_grid.assigned_hours
+  - id: capacity_hours
+    label: Capacity hours
+    unit: h
+    definition: Contracted weekly hours of the staff contract valid that week (a week without a contract has no row).
+    formula: DimEmployee.StandardWeeklyHours of the version valid on the week's Monday
+    level: employee x week
+    source: mart_ops.v_capacity_grid.capacity_hours
+  - id: peak_utilization_4w
+    label: Peak utilization, next 4 weeks
+    unit: "%"
+    definition: The highest weekly load of any planner or wedding-day staff member in the next 4 weeks, and who it is.
+    formula: max of utilization over employee-weeks from this week to 3 weeks ahead
+    level: employee x week, max
+    source: mart_ops.v_capacity_grid.utilization
+  - id: person_weeks_over_4w
+    label: Person-weeks over 100 %, next 4 weeks
+    unit: count
+    definition: How many times, in the next 4 weeks, a person is booked above their contracted hours.
+    formula: count of employee-weeks with status Over (assigned >= capacity)
+    level: employee x week
+    source: mart_ops.v_capacity_grid.status
+  - id: overtime_hours_12w
+    label: Overtime on booked work, next 12 weeks
+    unit: h
+    definition: Hours above contract already booked for the next 12 weeks; the freelance hours needed if nothing moves.
+    formula: sum over employee-weeks of max(0, assigned - capacity), this week to 11 weeks ahead
+    level: computed per employee-week, then summed (spare hours never cancel overtime)
+    source: mart_ops.v_capacity_grid.overtime_hours
+  - id: forecast_gap_12w
+    label: Freelance hours needed, next 12 weeks
+    unit: h
+    definition: Hours of expected work above staff capacity over the next 12 weeks, from the demand forecast. Book this many freelance hours.
+    formula: sum over role group x week of max(0, P50 forecast hours - capacity hours), the next 12 forecast weeks
+    level: role group x week, then summed
+    source: mart_ops.v_forward_demand.gap_hours
+  - id: capacity_status
+    label: Capacity status
+    unit: status
+    definition: Over at or above 100 % of capacity, Tight from 85 %, OK from 50 %, Quiet below 50 %.
+    formula: expected or booked hours / capacity hours against the thresholds
+    level: role group x week (or month)
+    source: mart_ops.v_forward_demand.status; mart_ops.v_role_week; mart_exec.v_capacity_outlook
+  - id: gap_hours
+    label: Hours short
+    unit: h
+    definition: Hours of work above the role group's capacity that week or month.
+    formula: max(0, expected or booked hours - capacity hours)
+    level: role group x week (or month)
+    source: mart_ops.v_forward_demand.gap_hours; mart_exec.v_capacity_outlook
+  - id: booked_hours
+    label: Booked hours
+    unit: h
+    definition: Hours of weddings already booked, falling in that week. New bookings will add to it.
+    formula: sum of assigned hours by role group and week
+    level: role group x week
+    source: mart_ops.v_role_week.assigned_hours
+  - id: headroom_hours
+    label: Headroom
+    unit: h
+    definition: Hours a role group still has free in the week of the date, after the weddings already booked.
+    formula: capacity hours - assigned hours of the role group that week
+    level: role group x week
+    source: mart_ops.v_date_check.planning_headroom_hours, wedding_day_headroom_hours
+  - id: weddings_that_day
+    label: Weddings that day
+    unit: count
+    definition: Weddings already booked on this date (cancelled ones excluded).
+    formula: count of non-cancelled bookings with that event date
+    level: date
+    source: mart_ops.v_date_check.weddings_that_day
+  - id: turned_away_90d
+    label: Couples turned away, last 3 months
+    unit: count
+    definition: Couples lost because the date they wanted was full, closed in the last three calendar months.
+    formula: count of inquiries lost with reason "Date unavailable", by closing month
+    level: closing month
+    source: mart_ops.v_turned_away.couples_turned_away
+  - id: peak_acceptance_rate
+    label: Peak-date acceptance
+    unit: "%"
+    definition: Of the decided couples who asked for a November-February or auspicious date, the share who booked.
+    formula: sum(IsBooked) / decided for inquiries whose requested date is high season or auspicious
+    level: ratio of sums by requested month
+    source: mart_ops.v_peak_acceptance.acceptance_rate
+  - id: fee_at_stake_turned_away
+    label: Fee at stake (estimate)
+    unit: THB
+    definition: What the turned-away couples might have been worth. An estimate.
+    formula: turned-away count x median fee of bookings in the last 12 months x booking rate of quoted leads
+    level: requested month
+    source: mart_ops.v_turned_away.fee_at_stake_estimate
+  - id: hours_per_wedding
+    label: Staff hours per wedding
+    unit: h
+    definition: Average staff time a wedding takes, by package, guest count and complexity.
+    formula: sum(PlannedHoursTotal) / count of weddings
+    level: package x guest band x complexity
+    source: mart_ops.v_hours_per_wedding.avg_total_hours
+
+  # ---------------- Executive ----------------
+  - id: bookings
+    label: Bookings
+    unit: count
+    definition: Weddings booked in the month (signed), cancelled ones excluded.
+    formula: count of non-cancelled bookings by booking month
+    level: booking month
+    source: mart_exec.v_monthly_kpis.bookings
+  - id: fee_revenue
+    label: Fee revenue booked
+    unit: THB
+    definition: Agreed planning fees of the weddings booked in the month.
+    formula: sum of AgreedFee of non-cancelled bookings by booking month
+    level: booking month
+    source: mart_exec.v_monthly_kpis.fee_revenue
+  - id: median_first_reply
+    label: Median first reply
+    unit: minutes
+    definition: Half of the couples who wrote online in the month got a first reply faster than this.
+    formula: median of ResponseMinutes for online inquiries received in the month (bot excluded)
+    level: inquiry month
+    source: mart_exec.v_monthly_kpis.median_first_reply_min
+    target: 60
+  - id: ops_utilization_quarter
+    label: Staff utilization, last 3 months
+    unit: "%"
+    definition: Hours worked by planners and wedding-day staff as a share of their contracted hours, over the last three complete months.
+    formula: sum(assigned hours) / sum(capacity hours) over Planning and Wedding-day staff, weeks starting in the 3 months
+    level: ratio of sums over employee-weeks
+    source: mart_exec.v_monthly_kpis (assigned_hours, capacity_hours)
+  - id: turned_away
+    label: Couples turned away
+    unit: count
+    definition: Couples lost in the month because their date was full.
+    formula: count of inquiries lost with reason "Date unavailable", by closing month
+    level: closing month
+    source: mart_exec.v_monthly_kpis.turned_away
+  - id: channel_share
+    label: Share of inquiries
+    unit: "%"
+    definition: Each channel's share of all inquiries, last 12 complete months against the 12 months before.
+    formula: inquiries of the channel / all inquiries, over the 12 months
+    level: ratio of sums over 12 months
+    source: mart_exec.v_channel_mix.inquiries
+  - id: fee_at_stake_lost
+    label: Fee at stake (estimate)
+    unit: THB
+    definition: What the couples lost in the last 12 months might have been worth, by reason. Only couples who had a quote count, plus every couple turned away for the date. An estimate.
+    formula: (quoted lost couples + couples lost for "Date unavailable") x median fee of all non-cancelled bookings x booking rate of quoted leads
+    level: lost reason, last 12 months
+    source: mart_exec.v_lost_value.fee_at_stake_estimate
+  - id: model_lift
+    label: Call list effect
+    unit: "%"
+    definition: Booking rate within 60 days of couples on the ranked call list against the standard queue kept as a control.
+    formula: booking rate (60 days from each lead's first score) of ranked leads - booking rate of holdout leads
+    level: lead, from each lead's first score
+    source: mart_exec.v_model_value (booking_rate_60d by arm)
+
+  # ---------------- Data & ML health ----------------
+  - id: run_duration
+    label: Run time
+    unit: seconds
+    definition: Wall-clock time of a pipeline run, start to finish.
+    formula: finished_at - started_at
+    level: run
+    source: mart_platform.v_runs.seconds
+  - id: dq_rows_failed
+    label: Rows failing a rule
+    unit: count
+    definition: Rows a data-quality rule found wrong in the latest successful run.
+    formula: rows_failed per rule and run
+    level: rule x run
+    source: mart_platform.v_dq_results.rows_failed

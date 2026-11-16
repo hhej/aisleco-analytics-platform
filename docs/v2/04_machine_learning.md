@@ -11,7 +11,7 @@ user, and how it is watched after launch.
 | Decision | Each morning: which open inquiries each salesperson contacts first, and what to say | Each week: per role group and week ahead, book freelancers, stop selling a date, or offer alternatives |
 | User | Sales (2 salespeople, about 15 follow-ups a day each) | Operations manager, weekly meeting |
 | Unit | open inquiry × score date | role group × target week, at a forecast date |
-| Target | books within the next 30 days (0/1) | staff-hours required in the target week |
+| Target | books within the next 60 days (0/1; 30 days by default, widened by the pre-registered EDA rule, §2) | staff-hours required in the target week |
 | Method | gradient-boosted trees (LightGBM), tuned and calibrated; logistic regression as challenger | booked hours + Model A's expected hours from open leads + a count model for bookings not yet in sight, with Monte Carlo intervals |
 | Main metric | PR-AUC; precision and recall in each day's top 15 | WAPE at 5–12 weeks ahead; interval coverage |
 | Must beat | today's practice (newest message first), a stage rule, channel rates, a logistic regression | booked-only, seasonal naive, pickup ratio |
@@ -31,7 +31,7 @@ already counts against next February's capacity, and the Sales list shows whethe
   never called again, and the 30-day rule closes them as "No reply".
 - **Decision.** The order of each salesperson's follow-up list, a plain reason for each lead, and a suggested next action.
 - **What success looks like.** More bookings from the same inquiries and the same sales hours. Measured offline by how many
-  of the next 30 days' bookings the top 15 contain (§6), online by an A/B holdout (§8).
+  of the next 60 days' bookings the top 15 contain (§6), online by an A/B holdout (§8).
 
 ### 2. Prediction design
 
@@ -39,9 +39,9 @@ already counts against next February's capacity, and the Sales list shows whethe
 |---|---|
 | Score time *T* | 02:00 each day, after the pipeline; features use only data with timestamps before 00:00 of the score date |
 | Population | inquiries open at *T*: received before *T*, not closed (`ClosedDate` null or ≥ *T*) |
-| Label *y* | 1 if a booking (`Event.CreatedDate`) is made from this inquiry, or from another inquiry of the same `CustomerID`, in [*T*, *T* + 30 days); else 0. Later cancellation does not change the label. |
-| Why 30 days | it matches the action (a follow-up acts within weeks) and gives labels after 30 days, so monitoring and retraining stay fresh. **Data check in M5:** if fewer than 80 % of bookings happen within 30 days of a randomly chosen open day, the window becomes 45 days; the EDA report shows the curve. |
-| Censoring | rows whose 30-day window is not over at the training cut-off are excluded from training (their label is unknown) |
+| Label *y* | 1 if a booking (`Event.CreatedDate`) is made from this inquiry, or from another inquiry of the same `CustomerID`, in [*T*, *T* + 60 days); else 0. Later cancellation does not change the label. |
+| Window | Rule fixed before looking: the smallest of 30, 45 and 60 days that holds at least 80 % of bookings (measured from every open day that precedes a booking). **Result (M5 EDA, `docs/v2/ml_eda.md`): 30 d = 55 %, 45 d = 72 %, 60 d = 82 % → 60 days.** Wedding decisions are slow (consultation, family, quote). The cost: labels mature after 60 days, so the test period and monitoring lag by 60 days. |
+| Censoring | rows whose label window is not over at the training cut-off are excluded from training (their label is unknown) |
 | Expected class balance | about 4–6 % positive rows (to be measured) |
 
 ### 3. Feature store
@@ -100,11 +100,11 @@ with rule intents only, and the report says so.
  score dates:  ── train (rolling CV inside) ──┤ purge 30 d ├── test: 3 months ──┤ 30 d (labels maturing) ├─ C
 ```
 
-- **Test**: score dates in [*C* − 120 d, *C* − 30 d). Never used for any choice; reported once.
-- **Purge**: 30 days between train and test, so no training label window overlaps the test period; any inquiry that has rows in
+- **Test**: score dates in [*C* − 150 d, *C* − 60 d) (90 days whose labels have matured). Never used for any choice; reported once.
+- **Purge**: 60 days (the label window) between train and test, so no training label window overlaps the test period; any inquiry that has rows in
   the test period is removed from training (no inquiry on both sides).
 - **Rolling-origin cross-validation** inside the training period: 5 folds; each validates on a 2-month block of score dates and
-  trains on everything before the block minus a 30-day purge; folds are grouped by inquiry.
+  trains on everything before the block minus a 60-day purge; folds are grouped by inquiry.
 
 **Candidates.** Logistic regression (one-hot, standardised, L2, `C` tuned) and LightGBM (Optuna TPE, 60 trials; `num_leaves`
 7–63, `min_child_samples` 20–200, `learning_rate` 0.01–0.1, `feature_fraction` 0.5–1.0, `bagging_fraction` 0.6–1.0,
@@ -120,7 +120,7 @@ error (ECE, 10 bins), reliability plot.
 |---|---|
 | **PR-AUC** (primary) | positives are rare; it measures ranking quality where it matters |
 | **Precision@15 and recall@15** per salesperson-day, averaged over test days | the actual decision: 15 follow-ups a day |
-| Bookings captured | share of the next 30 days' bookings that were in that day's top 15 |
+| Bookings captured | share of the bookings within the label window that were in that day's top 15 |
 | ROC-AUC | comparability with v1 and the literature |
 | Brier, ECE | calibration |
 | Slices | PR-AUC and precision@15 by channel, stage, age (0–2, 3–14, 15+ days), budget band |
@@ -134,15 +134,23 @@ error (ECE, 10 bins), reliability plot.
 | B2 | historical booking rate of the lead's channel × stage | simple statistics |
 | B3 | logistic regression | the simplest real model |
 
-**Ablation table** (report): PR-AUC as feature groups are added: profile → + engagement → + stage → + rule intents → + TF-IDF →
-+ sales activity → + capacity. Shows what each data source contributes (also evidence for the Data Sources dimension).
 
-**Gate** (in code, logged in MLflow; a candidate becomes `champion` only if all hold):
-1. Paired bootstrap of PR-AUC (candidate − best baseline): lower 95 % bound > 0.
-2. ECE ≤ 0.05 after calibration.
-3. No slice with at least 100 test rows where the candidate's PR-AUC is more than 0.05 below B0's.
-4. Against the current champion: compared on test inquiries the champion never trained on (v1 rule, at least 50 such
-   inquiries); the candidate must not be worse. With fewer than 50, the champion stays.
+**Ablation and feature choice.** The ablation runs on the rolling-origin CV, never on the test: feature groups are added in the
+order of §3 and the model uses the prefix with the best CV PR-AUC (ties → fewer features). The table is reported (it also shows
+what each data source contributes).
+
+**Gate** (in code, logged in MLflow; a candidate becomes `champion` only if all hold). Revised after the first full run (decision
+C23): the original rule "significantly better than the best simple rule" asked the wrong question and had no power on three months
+of test data (≈ 70 booked couples). The business question is whether the list beats what sales do today without being worse than a
+good rule:
+1. **Superiority over today's practice (B0):** paired-bootstrap 95 % lower bound of the PR-AUC gain > 0.
+2. **Non-inferiority against the best simple rule (B1 or B2):** lower bound of the PR-AUC difference > −0.05.
+3. ECE ≤ 0.05 after calibration (the list ranks by probability × fee, so probabilities must be honest).
+4. No slice with at least 100 test rows where the candidate's PR-AUC is more than 0.05 below B0's.
+5. Against the current champion: compared on test inquiries the champion never trained on (at least 50 such inquiries); the
+   candidate must not be worse. With fewer than 50, the champion stays.
+B3 (logistic regression) is a model-selection candidate, not a gate baseline: LightGBM is chosen only if its CV PR-AUC beats
+logistic regression by more than 0.005 (ties go to the simpler model); the B3 test result is reported.
 
 ### 7. Serving: the daily list
 
@@ -173,9 +181,9 @@ error (ECE, 10 bins), reliability plot.
 - 10 % of inquiries are in a **holdout** group: `hash(InquiryID) mod 10 = 0`, fixed at arrival. They appear in a separate
   "Standard queue" on the Sales page, ordered newest-first with no score: today's practice. The other 90 % are worked from the
   ranked list. This is a randomised controlled comparison of "ranked list" against "today's practice".
-- **Effect** = 30-day booking rate of prioritised leads − that of holdout leads, with a 95 % bootstrap interval
+- **Effect** = 60-day booking rate of prioritised leads − that of holdout leads, with a 95 % bootstrap interval
   (`mart_sales.v_ab_result`, Executive "model value" tile).
-- **Power analysis** (report): with a base 30-day booking rate of about 6 % and a 10 % holdout, the weeks of traffic needed
+- **Power analysis** (report): with the base 60-day booking rate measured on the holdout and a 10 % holdout, the weeks of traffic needed
   to detect +1.5 percentage points at 80 % power and 5 % significance. If that is longer than the project, the report says
   the test is running and shows the interval so far, nothing more.
 - **Offline value estimate** (before the A/B result is in): on the test period, bookings captured by the model's top 15 minus
@@ -210,7 +218,7 @@ reason to ignore any couple; the holdout and the standard queue keep everyone re
 metrics with intervals and slices, calibration, baselines, ablation, known limits, monitoring plan, PDPA notes (text masked,
 names only in the Sales role).
 
-EDA report (`ml/reports/eda.html`, M5): time from inquiry to booking (supports the 30-day window), class balance, feature
+EDA report (`docs/v2/ml_eda.md`, `python -m ml eda`): time to booking (decides the label window), class balance, feature
 distributions by outcome, missing values, the point-in-time check, the TikTok shift in 2026.
 
 ---
@@ -224,16 +232,17 @@ distributions by outcome, missing values, the point-in-time check, the TikTok sh
   booked), stop selling a date, or steer couples to alternative dates.
 - **Target.** Total staff-hours worked in the target week by that role group, under the hours-spread rule (Spec 03 §4.3), as
   known once all bookings for that week exist.
-- **Forecast at date *t* for week *w*** = three parts:
+- **Forecast at date *t* for week *w*** = three parts (as built in M6, `ml/forecast.py`, decision C22):
 
 | Part | Meaning | How |
 |---|---|---|
-| Booked hours *B(w)* | hours of weddings already booked | the spread rule on known assignments; a booked wedding without assignments yet uses the standard hours of its package, guest band and complexity |
-| Pipeline hours *P(w)* | hours of weddings expected from today's open inquiries | Σ over open inquiries of Model A's probability × the standard hours of a wedding on the requested date (inquiries without a date are spread by the historical lead-time distribution) |
-| New-booking hours *N(w)* | hours of weddings booked later than 30 days from *t* (leads that have not arrived yet, or will decide late) | Poisson regression of the number of such weddings per target month on weeks ahead, the target month's season, Lent, the count of auspicious weekend days, inquiries in the last 28 days, and the same month last year; then spread to weeks by the historical weekday and auspicious mix, × standard hours. LightGBM with a Poisson objective is the challenger. |
+| Booked hours *B(w)* | hours of weddings booked before *t* | the spread rule on their assignments (Gold `FactStaffWorkload`) |
+| Pipeline hours *P(w)* | hours expected from today's open inquiries that name a date | Σ over open inquiries of the booking rate of their stage × channel, measured on inquiries decided before *t*, × the average hours profile of a wedding of that package by role group and weeks-before-wedding. Model A's probabilities are not used here: in a backtest they would leak the future (the model was trained on later data), and retraining Model A for every past origin is too costly; the shared link between the two problems is the date badge on the Sales list and the requested-week utilization feature. |
+| Pickup *R(w)* | hours not yet in sight (late bookings, couples who have not written yet) | LightGBM quantile regression (10 / 50 / 90 %) of actual − B − P on weeks ahead, the target week's month, high season, Lent, auspicious weekend days, B, P, inquiries in the last 28 days and the same week last year |
 
-- **Intervals.** 1,000 Monte Carlo draws: each open lead books with its probability; new weddings ~ Poisson; hours per wedding
-  drawn from history by package. P10, P50 and P90 per role group and week.
+- **Intervals.** The quantile models' 10–90 % band covered only 48 % of actuals in the backtest, so the published band is
+  split-conformal: the P50 forecast times the 10th and 90th percentiles of the backtest's relative errors per horizon bucket
+  (leave-one-origin-out coverage 79 %).
 - **Capacity.** Σ standard weekly hours of the contracts valid in week *w* (known at *t*). Status per Spec 03 §6.
 
 ### 12. Backtest and selection
