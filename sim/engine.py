@@ -650,7 +650,7 @@ class World:
             else:
                 order = sorted(mine, key=lambda l: -((l.last_cust or l.arrived).timestamp() + rng.expovariate(1 / 86400)))
                 src = {}
-            for k, lead in enumerate(order[:FOLLOWUPS_PER_DAY]):
+            for k, lead in enumerate(order[:round(FOLLOWUPS_PER_DAY * self.scale)]):
                 t = self.ts(d, 10, 18)
                 line = lead.account is not None and rng.random() < .5
                 reached = rng.random() < REACH

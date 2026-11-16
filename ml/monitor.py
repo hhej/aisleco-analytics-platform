@@ -62,6 +62,15 @@ def monitor(asof: date, cfg=None) -> dict:
                 if s["max"] is not None:
                     out = int(((v > s["max"]) | (v < s["min"])).sum())
                     rows.append(("outside_training_range", f, out, None, "watch" if out else "ok", f"range {s['min']}..{s['max']}"))
+            # score drift: today's calibrated scores against the champion's scores on the reference population (deciles)
+            p_ref = model.predict_proba(ref)[:, 1]
+            p_now = np.array([float(r[0]) for r in c.execute(
+                'SELECT "Probability" FROM gold."FactLeadScore" WHERE "ScoreDateKey" = %s', (int(asof.strftime("%Y%m%d")),))])
+            if len(p_now):
+                edges = sorted(set(np.quantile(p_ref, np.linspace(.1, .9, 9)).round(4)))
+                p = psi(bins(pd.Series(p_ref), edges).to_dict(), bins(pd.Series(p_now), edges))
+                rows.append(("score_psi", "probability", p, 0.2, "alert" if p > 0.2 else "watch" if p > 0.1 else "ok",
+                             f"mean score now {p_now.mean():.3f}, reference {p_ref.mean():.3f}"))
         # performance on matured labels: scores made LABEL_DAYS to LABEL_DAYS + 56 days ago, outcome known now
         lab = pd.DataFrame(c.execute('''
             SELECT s."InquiryID", d."FullDate" AS score_date, s."Probability"::float AS p, s."IsHoldout" AS holdout, s."Rank" AS rank,

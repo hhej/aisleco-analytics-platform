@@ -10,6 +10,7 @@
   python -m ml card                       model card of the champion → docs/v2/model_card_lead_conversion.md
   python -m ml eda --asof D               exploratory report → docs/v2/ml_eda.md
   python -m ml rollback                   champion ← previous
+  python -m ml retire --reason TEXT       withdraw the champion (e.g. trained on wrong data); the next candidate is gated on baselines only
 """
 import argparse
 import json
@@ -57,6 +58,8 @@ def main(argv=None):
             a.add_argument("--trials", type=int)
     sub.add_parser("rollback")
     sub.add_parser("card")
+    a = sub.add_parser("retire")
+    a.add_argument("--reason", required=True)
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     cfg = Config()
@@ -75,6 +78,17 @@ def main(argv=None):
     elif args.cmd == "forecast":
         from ml import forecast
         print(json.dumps(forecast.run(args.asof, cfg), indent=1, default=str))
+    elif args.cmd == "retire":
+        mlflow.set_tracking_uri(TRACKING)
+        client = mlflow.MlflowClient()
+        mv = client.get_model_version_by_alias(MODEL, "champion")
+        client.delete_registered_model_alias(MODEL, "champion")
+        client.set_registered_model_alias(MODEL, "retired", mv.version)
+        client.set_model_version_tag(MODEL, mv.version, "retired_reason", args.reason)
+        with psycopg.connect(cfg.dw_dsn) as c:
+            c.execute("UPDATE ml.model_run SET status = 'retired', decision = decision || ' | retired: ' || %s "
+                      "WHERE model = %s AND version = %s", (args.reason, MODEL, str(mv.version)))
+        print(f"v{mv.version} retired: {args.reason}")
     elif args.cmd == "card":
         from ml import card
         print(card.run(cfg))

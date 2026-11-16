@@ -106,7 +106,7 @@ with rule intents only, and the report says so.
 - **Rolling-origin cross-validation** inside the training period: 5 folds; each validates on a 2-month block of score dates and
   trains on everything before the block minus a 60-day purge; folds are grouped by inquiry.
 
-**Candidates.** Logistic regression (one-hot, standardised, L2, `C` tuned) and LightGBM (Optuna TPE, 60 trials; `num_leaves`
+**Candidates.** Logistic regression (one-hot, standardised, L2) and LightGBM (Optuna TPE, 30 trials; `num_leaves`
 7–63, `min_child_samples` 20–200, `learning_rate` 0.01–0.1, `feature_fraction` 0.5–1.0, `bagging_fraction` 0.6–1.0,
 `lambda_l2` 0–10, trees by early stopping). Objective: mean PR-AUC over the folds; ties go to the simpler model.
 
@@ -158,7 +158,7 @@ logistic regression by more than 0.005 (ties go to the simpler model); the B3 te
 2. **Expected fee**: Full Planning = fee rate × budget midpoint; Partial and Day-of = package base price; unknown package =
    median fee of the last 12 months. Expected fee of the lead = probability × fee.
 3. **Rank** within each owner's list by expected fee (the page can switch to probability).
-4. **Band**: High ≥ 25 %, Medium 10–25 %, Low < 10 % (checked in M5 so that High is roughly the top 15 %).
+4. **Band**: High = above the 85th percentile of the calibrated test-period scores (roughly the top 15 %), Medium = 60th–85th, Low below; the cut-offs are stored with the model.
 5. **Reasons**: SHAP values (tree explainer) per lead; the three largest positive contributions are turned into sentences
    by `ml/reasons.yml` (e.g. `days_since_quote` → "Quote sent 2 days ago"; `intent_ask_availability` → "Asked whether a
    date is free"; `replied_within_1h` → "We answered within an hour"). Negative drivers are shown as risks ("Silent for 9 days").
@@ -196,10 +196,10 @@ logistic regression by more than 0.005 (ties go to the simpler model); the B3 te
 
 | Check | When | Alert when |
 |---|---|---|
-| Input drift: PSI per feature, today's scored rows vs the training distribution (10 bins, stored with the model) | daily | PSI > 0.2 (watch at 0.1) |
+| Input drift: PSI per feature, today's scored rows vs the champion's test-period population (every open lead on every test day, the same kind of population as a scoring day), bins from the training deciles; calendar fields (month, weekday) excluded as seasonal | daily | PSI > 0.2 (watch at 0.1) |
 | Missing-as-a-feature: missing share per feature vs training | daily | +10 percentage points |
 | Edge cases: values outside the training range, rare combinations (e.g. quoted with no consultation) | daily | count above the 99th percentile of training days |
-| Score drift: distribution of probabilities and share of High | daily | PSI > 0.2 |
+| Score drift: PSI of today's calibrated scores against the champion's scores on the reference population (deciles) | daily | PSI > 0.2 |
 | Label drift: base rate of matured labels | weekly | ± 50 % relative |
 | Performance on matured labels (8-week rolling PR-AUC, precision@15, ECE), measured on **holdout** leads too, which the model did not influence | weekly | PR-AUC −20 % relative to its test value, or ECE > 0.08 |
 
@@ -247,7 +247,7 @@ distributions by outcome, missing values, the point-in-time check, the TikTok sh
 
 ### 12. Backtest and selection
 
-- Rolling origins: every Monday of the last 12 months; horizons 1–26 weeks; actuals from the final data.
+- Rolling origins: the first Monday of each month from 12 months back to 13 weeks back (9 origins, so each has at least a quarter of actuals); horizons 1–26 weeks; models of each origin trained only on target weeks over before it; actuals from the final data.
 - Metrics by horizon bucket (1–4, 5–12, 13–26 weeks): WAPE (Σ|actual − forecast| ÷ Σ actual), bias (Σ(forecast − actual) ÷ Σ actual),
   coverage of the P10–P90 interval (target about 80 %), pinball loss.
 - Baselines: (1) booked hours only; (2) seasonal naive: the same week last year × this year's bookings to date ÷ last year's at

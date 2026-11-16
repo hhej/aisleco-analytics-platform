@@ -73,6 +73,8 @@ Inspecting any zone: `duckdb -c "SELECT * FROM 'lake/silver/inquiry/*.parquet' L
 
 ## 4. Silver tables (every transformation, step by step)
 
+13 tables: 11 trusted (`auspicious_date`, `calendar_day`, `channel`, `package`, `employee_contract`, `chat_message`, `fair_lead`, `inquiry`, `event`, `assignment`, `sales_activity`) and 2 restricted (`lead_text`, `customer_contact`).
+
 Notation: **in** = Bronze inputs, **grain** = what one row is, **steps** = in order, **out** = main columns.
 All SQL is in `pipeline/silver/sql/NN_<table>.sql` (DuckDB dialect), one file per table, with this spec's text as its header.
 

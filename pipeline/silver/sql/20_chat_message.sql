@@ -135,5 +135,5 @@ SELECT platform, platform_message_id, sent_at, direction, sender_type, employee_
        coalesce(copies, 0) AS _copies
 FROM joined
 UNION ALL BY NAME
-SELECT platform, direction, 'R20' AS _reject, [] AS _warn, body_sha256 AS _key, _run_id, received_at AS _received_at, 0 AS _copies
+SELECT platform, direction, 'R20' AS _reject, [] AS _warn, body_sha256 || '@' || received_at AS _key,   -- one index entry per received body _run_id, received_at AS _received_at, 0 AS _copies
 FROM rejected

@@ -26,13 +26,13 @@ the pipeline has no path to. Tests use it for source-to-target checks and to pro
 | Live message | demo panel or `python -m sim message --new-couple` | one LINE message now, real clock |
 | Report | `python -m sim report` | the calibration numbers of §8 |
 
-`--scale N` multiplies couples and staff by N (stress tests). The same seed gives the same data.
+`--scale N` multiplies couples, fair sign-ups and the daily follow-up capacity by N; operations staff are not scaled (it is a pipeline volume test, not a bigger company). The same seed gives the same data.
 
 ## 3. The company
 
 | Item | Setting |
 |---|---|
-| Staff (ops roles) | 2 lead planners (Som, Nina), 3 planners, 2 coordinators (Beam, Ploy), 3 event staff (Arm, Golf, Mook): 10 people, 36–44 standard hours each, about 420 hours a week |
+| Staff (ops roles) | 2 lead planners (Som, Nina), 3 planners, 2 coordinators (Beam, Ice), 3 event staff (Arm, Golf, Mook): 10 people, 36–44 standard hours each, about 420 hours a week |
 | Sales | 2 salespeople (May, Ken) and a sales manager (Nok); about 15 follow-ups a day each |
 | Office | marketing and finance (not assigned to weddings) |
 | Contract history | Nina 44 → 36 h from 1 Feb 2026; Ploy hired 1 Jun 2024; freelance coordinator Fah 20 h/week for Dec–Feb peaks each season; one planner leaves in Aug 2025 and is replaced in Oct 2025 |

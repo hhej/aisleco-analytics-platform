@@ -1,7 +1,7 @@
 """Training, validation and registration of the lead-conversion model (Spec 04 §5–§6, §9).
 
-Splits are by time only. With the as-of date C: test = score dates in [C-120, C-30) (labels mature), purge 30 days
-before it (no training label window overlaps the test), inquiries seen in the test are removed from training.
+Splits are by time only. With the as-of date C: test = score dates in [C-240, C-60) (6 months whose labels matured),
+a 60-day purge before it (no training label window overlaps the test), inquiries seen in the test are removed from training.
 Inside training: 5-fold rolling-origin CV (2-month blocks, 30-day purge) for model choice and Optuna tuning.
 Isotonic calibration on the out-of-fold predictions of the last two folds. Metrics with 95 % cluster-bootstrap
 intervals (by inquiry). A candidate becomes the MLflow `champion` only if it passes the gate (§6)."""
@@ -274,7 +274,8 @@ def train(asof: date, cfg=None, trials=None) -> dict:
     final = CalibratedModel(fit(candidates(best_params, FEAT)[name], full, FEAT),
                             IsotonicRegression(out_of_bounds="clip", y_min=0, y_max=1).fit(model.raw(test), test.y), FEAT)
     final.training_stats = training_stats(full, FEAT)
-    final.thresholds = {"high": 0.25, "medium": 0.10}
+    # bands by the test-period distribution of calibrated scores: High ≈ top 15 %, Medium the next 25 % (Spec 04 §7)
+    final.thresholds = {"high": round(float(np.quantile(p_test, 0.85)), 4), "medium": round(float(np.quantile(p_test, 0.60)), 4)}
     version = register(asof, name, best_params, cv_results, cv_best, m, base, best_base, slices, ablation, decision, status, final,
                        model, test, p_test, train_, vs_prod, test_end)
     with psycopg.connect(cfg.dw_dsn) as c:

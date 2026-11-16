@@ -40,7 +40,7 @@ export default function Demo() {
             <div className="mt-4 rounded-lg bg-page border border-line p-3 text-[13px]">
               <p className="font-medium">Accepted by the gateway at {new Date(line.received_at).toLocaleTimeString("en-GB")}</p>
               <p className="text-ink-2 mt-1">Landed in: <span className="font-mono text-[12px] break-all">{line.landed_file ?? "not found in the expected hourly file"}</span></p>
-              <p className="text-ink-3 mt-1 text-[12px]">Event {line.event_id}. The next pipeline run moves it to Bronze, then Silver.</p>
+              <p className="text-ink-3 mt-1 text-[12px]">Inquiry {line.inquiry_id} created in the CRM. The next pipeline run moves the message to Bronze, then Silver.</p>
             </div>
           )}
         </Card>

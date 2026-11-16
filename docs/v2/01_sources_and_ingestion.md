@@ -178,7 +178,7 @@ guest count, venue type and the couple's own wishes (free text).
 |---|---|---|
 | Provider | Google public calendar `th#holiday` (real) | Thai astrology publications, compiled by marketing each October for the next year |
 | Method | API pull: HTTP GET, timeout 10 s, 3 retries | File drop into `lake/landing/external/` |
-| Frequency | Monthly, 1st of the month (DAG `aisleco_monthly_external`) | Yearly |
+| Frequency | Monthly: `ingest_files` pulls it on the 1st of the month or when none exists (decision C15) | Yearly |
 | Bronze | `bronze/external/th_holidays/fetched_date=D/basic.ics` (every fetch kept) | `bronze/external/auspicious/year=YYYY/auspicious_YYYY.csv` |
 | Checks | parses; at least 15 events per year; Asalha Bucha present for every year up to next year (later years: Lent approximated, flagged) | header and types; level in Low/Medium/High; date inside the stated year |
 | On failure | warning alert; the last good fetch is used | warning alert; the previous year's file is used |
@@ -209,10 +209,10 @@ calendar_date,date_type,auspicious_level,description
 ## 7. A night of ingestion (02:00, Bangkok time)
 
 ```
-ingest_crm ─┐
-ingest_chat ┼─► silver_build ─► dq_gate ─► load_stg ─► gold_dims ─► gold_facts ─► reconcile ─► marts ─► ml_features ─► ml_score ─► ml_forecast ─► ml_monitor ─► finish
-ingest_fair ┘
-(1st of month: ingest_external runs first)
+ingest_crm ──┐                                        ┌► fact_inquiry ────────┐
+             ├► silver (+ DQ, quarantine, block) ► load_stg ► gold_dims ┼► fact_event_booking ──┼► marts ► reconcile ► finish ► ml_score ┬► ml_monitor
+ingest_files ┘  (chat, tablets, external)             ├► fact_staff_workload ─┤                                                    └► ml_forecast
+                                                      └► fact_sales_activity ─┘
 ```
 
 Each step writes a row to `etl.step_run` (rows in, out, rejected; seconds) and can be resumed from the failed step.

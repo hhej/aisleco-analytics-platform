@@ -39,10 +39,10 @@ warehouse (Chapter 5, "the data mart becomes a logical distinction"). Separate s
 | `DimEmployee` | employee **contract version** | `employee_contract` | **SCD Type 2** | EmployeeKey, EmployeeID, Nickname, RoleName, RoleGroup (Planning / Wedding-day / Sales / Office), EmploymentType, StandardWeeklyHours, MaxConcurrentEvents, ValidFrom, ValidTo (9999-12-31 if open), IsCurrent | staff on an assignment, first responder, sales owner, salesperson on an activity |
 | `DimPackage` | package price version | `package` | Type 1 (each price version is already its own row in the CRM) | PackageID, PackageName, PackageFamily, PackageType, FeeType, BasePrice, FeeRate, EffectiveFrom, EffectiveTo | package of interest, package booked |
 | `DimChannel` | marketing channel | `channel` | Type 1 | ChannelID, ChannelName, ChannelType (Online/Offline), Platform, TrackingCode | inquiry channel, booking channel |
-| `DimInquiryOutcome` | combination of outcome labels (junk dimension, ~25 rows) | `inquiry` | Type 1, rows added when a new combination appears | Outcome (Open / Booked / Lost), FurthestStage (New / Contacted / Consulted / Quoted / Booked), ClosedBy (Sales / AutoRule / —), LostReason | — |
+| `DimInquiryOutcome` | combination of outcome labels (junk dimension, ~25 rows) | `inquiry` | Type 1, rows added when a new combination appears | Outcome (Open / Booked / Lost / Closed: closed without a loss reason, e.g. a duplicate merged by sales), FurthestStage (New / Contacted / Consulted / Quoted / Booked), ClosedBy (Sales / AutoRule / —), LostReason | — |
 
 **SCD2 rule for `DimEmployee`.** One row per `EmployeeContract` row. A fact row that happens on day *d* gets the key of the
-version with `ValidFrom ≤ d ≤ ValidTo`. Example (Appendix B.5 of Rev10): Nina moves from 44 to 36 hours on 1 Feb 2027.
+version with `ValidFrom ≤ d ≤ ValidTo`. Example: Nina moves from 44 to 36 hours on 1 Feb 2026 (entered by HR on 20 Jan 2026).
 `DimEmployee` holds two rows for Nina; workload in the week of 11 Jan joins the 44-hour row, the week of 8 Feb the 36-hour row.
 No week is frozen: a late correction to an assignment flows into history, and rule C03b counts such late changes.
 

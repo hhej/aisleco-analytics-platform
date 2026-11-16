@@ -93,3 +93,11 @@ def test_rerun_changes_nothing(dw):
     m = {r["step"]: r["metrics"] for r in dw.execute("SELECT step, metrics FROM etl.step_run WHERE run_id = %s", (run_id,))}
     for step in ("fact_inquiry", "fact_event_booking", "fact_staff_workload", "fact_sales_activity"):
         assert (m[step]["inserted"], m[step]["updated"], m[step]["deleted"]) == (0, 0, 0), step
+
+
+def test_budget_bands_are_canonical(dw):
+    """Regression: '1M-1.5M' and '1.5M+' were once mis-normalised, leaving high-budget couples without a budget."""
+    bands = {r["BudgetBand"]: r["n"] for r in dw.execute('SELECT "BudgetBand", count(*) n FROM gold."FactInquiry" GROUP BY 1')}
+    assert set(bands) <= {"300k-500k", "500k-1M", "1M-1.5M", "1.5M+", "Unknown"}
+    assert bands.get("1M-1.5M", 0) > 0 and bands.get("1.5M+", 0) > 0
+    assert one(dw, 'SELECT count(*) FROM gold."FactInquiry" WHERE "BudgetBand" <> \'Unknown\' AND "BudgetMidpoint" IS NULL') == 0

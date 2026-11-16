@@ -9,7 +9,7 @@ WITH m AS (SELECT DISTINCT "YearMonth" AS month FROM gold."DimDate" WHERE "FullD
 bk AS (SELECT d."YearMonth" AS month, count(*) AS bookings, sum(b."AgreedFee") AS fee_revenue
        FROM gold."FactEventBooking" b JOIN gold."DimDate" d ON d."DateKey" = b."BookingDateKey" WHERE b."IsCancelled" = 0 GROUP BY 1),
 held AS (SELECT d."YearMonth" AS month, count(*) AS weddings_held FROM gold."FactEventBooking" b JOIN gold."DimDate" d ON d."DateKey" = b."EventDateKey"
-         WHERE b."IsCancelled" = 0 GROUP BY 1),
+         WHERE b."IsCancelled" = 0 AND d."FullDate" <= gold.asof() GROUP BY 1),        -- held = already happened
 inq AS (SELECT inquiry_month AS month, count(*) AS inquiries, sum("InquiryCount" - "IsOpen") AS decided, sum("IsBooked") AS booked,
                percentile_cont(0.5) WITHIN GROUP (ORDER BY "ResponseMinutes") FILTER (WHERE channel_type = 'Online') AS median_first_reply_min
         FROM mart_sales.v_inquiry GROUP BY 1),

@@ -25,7 +25,8 @@ b AS (  -- budget: thousands of baht read from free text ("around 600k", "6 เนเ
   FROM crm."Inquiry"),
 band AS (
   SELECT "InquiryID", CASE
-      WHEN t IN ('300k-500k', '500k-1m', '1m-1.5m', '1.5m+') THEN replace(replace(t, '1m', '1M'), '-1m', '-1M')
+      WHEN t IN ('300k-500k', '500k-1m', '1m-1.5m', '1.5m+') THEN CASE t WHEN '300k-500k' THEN '300k-500k' WHEN '500k-1m' THEN '500k-1M'
+                                                                   WHEN '1m-1.5m' THEN '1M-1.5M' ELSE '1.5M+' END
       WHEN k IS NULL THEN 'Unknown'
       WHEN k <= 500 THEN '300k-500k' WHEN k < 1000 THEN '500k-1M' WHEN k < 1500 THEN '1M-1.5M' ELSE '1.5M+' END AS budget_band
   FROM b),
