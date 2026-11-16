@@ -100,7 +100,7 @@ with rule intents only, and the report says so.
  score dates:  ── train (rolling CV inside) ──┤ purge 30 d ├── test: 3 months ──┤ 30 d (labels maturing) ├─ C
 ```
 
-- **Test**: score dates in [*C* − 150 d, *C* − 60 d) (90 days whose labels have matured). Never used for any choice; reported once.
+- **Test**: score dates in [*C* − 240 d, *C* − 60 d): 6 months whose labels have matured (3 months in runs v1–v3 proved too few booked couples to decide, decision C24). Never used for any choice; reported once.
 - **Purge**: 60 days (the label window) between train and test, so no training label window overlaps the test period; any inquiry that has rows in
   the test period is removed from training (no inquiry on both sides).
 - **Rolling-origin cross-validation** inside the training period: 5 folds; each validates on a 2-month block of score dates and

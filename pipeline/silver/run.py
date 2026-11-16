@@ -27,7 +27,7 @@ from pathlib import Path
 import duckdb
 import yaml
 
-from pipeline import meta
+from pipeline import db, meta
 from pipeline.config import SOURCES
 from pipeline.ingest.crm_cdc import sha256
 from pipeline.quality import dq
@@ -117,6 +117,8 @@ def run(ctx, conn):
     build = cfg.lake_dir / "silver" / "_build" / f"run={ctx.run_id:05d}"
     shutil.rmtree(build, ignore_errors=True)
     con = preview(cfg, conn, ctx.run_id, ctx.asof)
+    # DQ results and the quarantine index are written outside the step's transaction, so a blocked run keeps its evidence
+    dqc = db.connect(cfg.dw_dsn, cfg, autocommit=True, purpose="warehouse (dq log)")
     only = os.environ.get("SILVER_ONLY")          # development: run only files with these number prefixes
     stats, rejected = {}, {}
     for f in sorted(SQL.glob("*.sql")):
@@ -133,13 +135,16 @@ def run(ctx, conn):
         n_new = con.execute(f"SELECT count(*) FROM _all_{name} WHERE _run_id = {ctx.run_id}").fetchone()[0] if has("_run_id") else None
         rej = con.execute(f"SELECT * FROM _all_{name} WHERE _reject IS NOT NULL").fetchdf() if has("_reject") else None
         warns = dict(con.execute(f"SELECT w, count(*) FROM (SELECT unnest(_warn) w FROM _all_{name}) GROUP BY 1").fetchall()) if has("_warn") else {}
-        dq.record_rows(conn, ctx, name, n_all, n_new, rej, warns, cfg)
+        dq.record_rows(dqc, ctx, name, n_all, n_new, rej, warns, cfg)
         rejected[name] = 0 if rej is None else len(rej)
         out = cfg.lake_dir / "silver_restricted" / "_build" / name.removeprefix("restricted_") if name.startswith("restricted_") else build / name
         out.mkdir(parents=True, exist_ok=True)
         con.execute(f"COPY \"{name}\" TO '{out / 'data.parquet'}' (FORMAT parquet, COMPRESSION zstd)")
         stats[name] = con.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0]
-    dq.set_checks(conn, ctx, con)          # block / warn rules over the whole build; raises on a block
+    try:
+        dq.set_checks(dqc, ctx, con)       # block / warn rules over the whole build; raises on a block
+    finally:
+        dqc.close()
     # publish: every table swapped in only now (a failed build leaves the published Silver untouched)
     for root, b in ((cfg.lake_dir / "silver", build), (cfg.lake_dir / "silver_restricted", cfg.lake_dir / "silver_restricted" / "_build")):
         if not b.exists():

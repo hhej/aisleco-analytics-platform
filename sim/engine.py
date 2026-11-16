@@ -286,9 +286,11 @@ class World:
                         HireDate=hire, Status="Active", CreatedAt=t, UpdatedAt=t)))
         for i, (role, typ, hrs, mx, f, to, entered) in enumerate(contracts):
             later = [c for c in contracts[i + 1:] if c[6]]
+            # the end date is known once the successor contract (or the leaving) has been entered
+            ended = any(c[6] <= self.today for c in later) or (leave is not None and leave - timedelta(days=31) <= self.today)
             if entered and entered > self.today:
                 self.schedule(entered, "contract", (code, i))
-            elif typ == "Freelance" or not (later or leave):
+            elif typ == "Freelance" or not (later or leave) or ended:
                 self.contract_row(day, code, i, to, t)
             else:
                 self.contract_row(day, code, i, None, t)    # end date unknown until the change or leaving is entered

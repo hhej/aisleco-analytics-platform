@@ -37,7 +37,7 @@ log = logging.getLogger("ml")
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 TRACKING = "postgresql+psycopg:///mlflow"
 EXPERIMENT, MODEL = "lead_conversion", "lead_conversion"
-TEST_DAYS, PURGE, FOLDS, FOLD_DAYS, TRIALS, K = 90, D.LABEL_DAYS, 5, 61, 40, 15
+TEST_DAYS, PURGE, FOLDS, FOLD_DAYS, TRIALS, K = 180, D.LABEL_DAYS, 5, 61, 30, 15   # 180: see decision C24 (power)
 SNAPSHOT_AGES = {1, 2, 3, 4, 5, 7, 10, 14, 21, 30, 45, 60}   # training rows per inquiry (test keeps every day: each day is a decision)
 # superiority over today's practice (B0), non-inferiority against the best simple rule (B1/B2) (decision C23)
 GATE = {"min_gain_vs_practice": 0.0, "non_inferiority_margin": -0.05, "max_ece": 0.05, "max_slice_loss": 0.05, "min_slice_rows": 100,

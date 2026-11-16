@@ -37,10 +37,11 @@ def marts(ctx, conn):
 
 def reconcile(ctx, conn):
     out, blocks = {}, []
+    dqc = db.connect(ctx.cfg.dw_dsn, ctx.cfg, autocommit=True, purpose="warehouse (dq log)")   # survives a block
     for rule, q in CHECKS.items():
         row = conn.execute(q).fetchone()
         failed = int(next(iter(row.values())) or 0)
-        dq.record(conn, ctx, rule, None, failed)
+        dq.record(dqc, ctx, rule, None, failed)
         out[rule] = failed
         if failed:
             blocks.append(f"{rule}: {failed} — {dq.BY_ID[rule]['description']}")
@@ -51,7 +52,8 @@ def reconcile(ctx, conn):
         late = conn.execute("""SELECT count(*) AS n FROM work."FactStaffWorkload" w JOIN gold."DimDate" d ON d."DateKey" = w."WeekStartDateKey"
                                WHERE d."FullDate" + 6 < %s AND w."AssignmentID" IN (
                                  SELECT assignment_id FROM stg.assignment WHERE updated_at::date >= %s)""", (prev, prev)).fetchone()["n"]
-    dq.record(conn, ctx, "C03b", None, late)
+    dq.record(dqc, ctx, "C03b", None, late)
+    dqc.close()
     if late:
         meta.alert(conn, ctx.run_id, "warning", f"C03b: {late} week row(s) of ended weeks changed since the last run (late correction)")
     if blocks:

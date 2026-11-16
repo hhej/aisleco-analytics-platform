@@ -6,6 +6,7 @@
   python -m ml monitor --asof D           drift and matured-label performance → ml.monitor (daily)
   python -m ml daily --asof D             score + monitor
   python -m ml forecast --asof D          staffing-demand forecast + backtest → gold.FactDemandForecast
+  python -m ml text --asof D              TF-IDF text experiment → docs/v2/ml_text_experiment.md
   python -m ml eda --asof D               exploratory report → docs/v2/ml_eda.md
   python -m ml rollback                   champion ← previous
 """
@@ -48,7 +49,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m ml")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("init")
-    for n in ("train", "score", "monitor", "daily", "eda", "forecast"):
+    for n in ("train", "score", "monitor", "daily", "eda", "forecast", "text"):
         a = sub.add_parser(n)
         a.add_argument("--asof", type=date.fromisoformat, default=date.today())
         if n == "train":
@@ -72,6 +73,9 @@ def main(argv=None):
     elif args.cmd == "forecast":
         from ml import forecast
         print(json.dumps(forecast.run(args.asof, cfg), indent=1, default=str))
+    elif args.cmd == "text":
+        from ml import text_experiment
+        print(json.dumps(text_experiment.run(args.asof), indent=1))
     elif args.cmd == "eda":
         from ml import eda
         print(eda.run(args.asof))
