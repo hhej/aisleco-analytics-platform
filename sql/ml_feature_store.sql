@@ -1,13 +1,14 @@
 -- =====================================================================
--- Feature store and model registry for the conversion model (Chapter 7).
+-- Feature store and model registry for the conversion model and the demand forecast (Chapter 7).
 -- Runs after the DW v7 DDL (it reads stg, the Silver zone, and etl.budget_mid).
 --
 --   feature.inquiry_features(ids, cutoffs)  the one feature definition, point in time
 --   feature."InquiryFeatures"               offline store: what each open inquiry looked like each day
---   feature."InquiryLabel"                  outcome of closed inquiries (booked or lost) and when
+--   feature."InquiryLabel"                  booked within 120 days or not, and when that became final
 --   ml."ModelVersion"                       model registry + metadata store
 --   ml."InquiryScore"                       daily batch predictions
 --   ml."DriftCheck"                         monitoring results
+--   feature.demand_features(asof)           demand forecast features of the next 6 months; ml."DemandForecast"
 -- =====================================================================
 CREATE SCHEMA IF NOT EXISTS feature;
 CREATE SCHEMA IF NOT EXISTS ml;
@@ -16,7 +17,7 @@ CREATE SCHEMA IF NOT EXISTS ml;
 -- before the cutoff. Training (past cutoffs) and daily scoring (today) call the same code,
 -- so the model is always fed features computed the same way.
 -- Only inquiries still open at the cutoff are returned: received before it, not yet booked
--- and not yet closed. Event timestamps (messages, consultation, quote, booking, closing)
+-- and not closed (Lost/Converted) before it. Event timestamps (messages, consultation, quote, booking, closing)
 -- are taken as of the cutoff; descriptive fields (channel, budget, package, wedding date)
 -- are the latest values in Silver.
 CREATE OR REPLACE FUNCTION feature.inquiry_features(p_ids int[], p_cutoffs timestamp[])
@@ -62,7 +63,8 @@ LEFT JOIN LATERAL (
       AND c."SentAt" >= m.t_in AND c."SentAt" < s.cutoff) r ON true
 WHERE i."InquiryDate" < s.cutoff
   AND (e."CreatedDate" IS NULL OR e."CreatedDate" >= s.cutoff)
-  AND (i."ClosedDate" IS NULL OR i."ClosedDate" >= s.cutoff)
+  -- closed = Lost/Converted with a past ClosedDate; a reopened inquiry (status back to open) is scored again
+  AND NOT (i."Status" IN ('Lost', 'Converted') AND i."ClosedDate" < s.cutoff)
 $$;
 
 -- Offline store: one row per open inquiry per scoring day (filled by `python -m ml features`)
@@ -72,14 +74,21 @@ DO $$ BEGIN
   ALTER TABLE feature."InquiryFeatures" ADD PRIMARY KEY ("InquiryID", "AsOf");
 EXCEPTION WHEN invalid_table_definition THEN NULL; END $$;
 
--- Label: did the inquiry turn into a booking? Booked = an event was created (a later
--- cancellation does not change the sales outcome). Only closed inquiries have a label.
+-- Label: did the couple book within 120 days of this inquiry (a fixed outcome window, whatever the
+-- CRM status says)? Booked = an event was created in the window, on this inquiry or on a later one by
+-- the same customer (a later cancellation does not change the sales outcome); not booked = 120 days
+-- passed without one. So a couple marked Lost (often by the 30-day no-reply AutoRule) who comes back
+-- and books on day 90 is Booked; a booking after day 120 is new business. ClosedAt = when the outcome
+-- became final: the booking, or the end of the window. A label never changes once it exists.
+-- 120 = ml.train.LABEL_DAYS; keep the two equal.
 CREATE OR REPLACE VIEW feature."InquiryLabel" AS
-SELECT i."InquiryID", i."InquiryDate", (e."EventID" IS NOT NULL)::int AS "Booked",
-       coalesce(e."CreatedDate", i."ClosedDate") AS "ClosedAt"
+SELECT i."InquiryID", i."InquiryDate", (b.at < w.end_at)::int AS "Booked", least(b.at, w.end_at) AS "ClosedAt"
 FROM stg."Inquiry" i
-LEFT JOIN stg."Event" e ON e."InquiryID" = i."InquiryID"
-WHERE e."EventID" IS NOT NULL OR i."Status" = 'Lost';
+CROSS JOIN LATERAL (SELECT i."InquiryDate" + interval '120 days' AS end_at) w
+CROSS JOIN LATERAL (
+    SELECT coalesce(min(e."CreatedDate"), 'infinity') AS at FROM stg."Event" e
+    WHERE e."InquiryID" = i."InquiryID"
+       OR (e."CustomerID" = i."CustomerID" AND e."CreatedDate" >= i."InquiryDate")) b;
 
 -- Registry and metadata: every training run, promoted or not, with what it was trained on
 -- and how it scored. The model itself is stored here too (pickled scikit-learn pipeline).
@@ -118,4 +127,71 @@ CREATE TABLE IF NOT EXISTS ml."DriftCheck" (
   "Status" text NOT NULL CHECK ("Status" IN ('ok', 'warning', 'alert', 'n/a')),
   "Detail" text,
   PRIMARY KEY ("AsOfDate", "Version", "Check")
+);
+
+-- ---------------------------------------------------------------------
+-- Demand forecast (Problem 1): how many weddings will each of the next 6 months hold?
+-- ---------------------------------------------------------------------
+-- One registry for both models: Model = 'conversion' or 'demand', one production version each.
+ALTER TABLE ml."ModelVersion" ADD COLUMN IF NOT EXISTS "Model" text NOT NULL DEFAULT 'conversion'
+  CHECK ("Model" IN ('conversion', 'demand'));
+CREATE UNIQUE INDEX IF NOT EXISTS one_production_per_model ON ml."ModelVersion" ("Model") WHERE "Status" = 'production';
+
+-- Features of each of the 6 calendar months after the as-of date, as known at the start of that day.
+-- Weddings are booked 1 to 15 months ahead, so most of a near month is already on the books; the
+-- model predicts the pickup still to come (final - OnBooks).
+--   OnBooks          events booked before the as-of date for that month
+--   OpenInquiries    inquiries still open that ask for a date in that month
+--   OnBooksLastYear  the same month a year earlier, as it stood a year earlier (same horizon)
+--   LastYearFinal    the same month a year earlier, final
+--   LastYearPickup   LastYearFinal - OnBooksLastYear: how much was still to come a year ago
+--   OpenQuoted       of the OpenInquiries, those already quoted (the likeliest to book)
+--   Bookings28d      bookings made in the 28 days before the as-of date, any month (sales momentum)
+DROP FUNCTION IF EXISTS feature.demand_features(date) CASCADE;
+CREATE OR REPLACE FUNCTION feature.demand_features(p_asof date)
+RETURNS TABLE ("AsOf" date, "Month" date, "Horizon" int, "OnBooks" int, "OpenInquiries" int, "HighSeason" int,
+               "AuspiciousDays" int, "OnBooksLastYear" int, "LastYearFinal" int, "LastYearPickup" int,
+               "OpenQuoted" int, "Bookings28d" int)
+LANGUAGE sql STABLE AS $$
+SELECT p_asof, m.m::date, h,
+       (SELECT count(*) FROM stg."Event" e
+        WHERE e."CreatedDate" < p_asof AND e."EventDate" >= m.m AND e."EventDate" < m.m + interval '1 month')::int,
+       o.n::int,
+       (extract(month FROM m.m) IN (11, 12, 1, 2))::int,
+       (SELECT count(DISTINCT a."CalendarDate") FROM stg."AuspiciousDate" a
+        WHERE a."CalendarDate" >= m.m AND a."CalendarDate" < m.m + interval '1 month')::int,
+       ly.booked::int, ly.final::int, (ly.final - ly.booked)::int,
+       o.quoted::int,
+       (SELECT count(*) FROM stg."Event" e WHERE e."CreatedDate" >= p_asof - 28 AND e."CreatedDate" < p_asof)::int
+FROM generate_series(1, 6) h, LATERAL (SELECT date_trunc('month', p_asof) + h * interval '1 month' AS m) m,
+LATERAL (SELECT count(*) AS n, count(*) FILTER (WHERE i."QuotedDate" < p_asof) AS quoted FROM stg."Inquiry" i
+         WHERE i."InquiryDate" < p_asof AND i."RequestedEventDate" >= m.m AND i."RequestedEventDate" < m.m + interval '1 month'
+           AND (i."ClosedDate" IS NULL OR i."ClosedDate" >= p_asof)
+           AND NOT EXISTS (SELECT 1 FROM stg."Event" e WHERE e."InquiryID" = i."InquiryID" AND e."CreatedDate" < p_asof)) o,
+LATERAL (SELECT count(*) FILTER (WHERE e."CreatedDate" < p_asof - interval '1 year') AS booked, count(*) AS final
+         FROM stg."Event" e WHERE e."CreatedDate" < p_asof
+           AND e."EventDate" >= m.m - interval '1 year' AND e."EventDate" < m.m - interval '11 months') ly
+$$;
+
+-- Offline store: the features of the next 6 months, kept for every forecasting day
+CREATE TABLE IF NOT EXISTS feature."DemandFeatures" AS
+SELECT * FROM feature.demand_features('2000-01-01') WITH NO DATA;
+DO $$ BEGIN
+  ALTER TABLE feature."DemandFeatures" ADD PRIMARY KEY ("AsOf", "Month");
+EXCEPTION WHEN invalid_table_definition THEN NULL; END $$;
+
+-- Daily forecast: weddings and staff-hours per month against the event staff's capacity
+CREATE TABLE IF NOT EXISTS ml."DemandForecast" (
+  "AsOfDate" date NOT NULL,
+  "Month" date NOT NULL,
+  "Horizon" int NOT NULL,
+  "Version" int NOT NULL REFERENCES ml."ModelVersion" ("Version"),
+  "OnBooks" int NOT NULL,                   -- weddings already booked
+  "Forecast" numeric(6,2) NOT NULL,         -- expected weddings in all (booked + still to come)
+  "Lo" int NOT NULL,                        -- 80% interval
+  "Hi" int NOT NULL,
+  "BookedHours" numeric(8,1) NOT NULL,      -- hours already assigned in the month's weeks
+  "ExpectedHours" numeric(8,1) NOT NULL,    -- booked hours + expected new weddings x hours per wedding
+  "CapacityHours" numeric(8,1) NOT NULL,    -- standard hours of the event staff in the month's weeks
+  PRIMARY KEY ("AsOfDate", "Month")
 );

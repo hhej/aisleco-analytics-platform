@@ -34,7 +34,8 @@ the quiet ones before they drop out.
 | Model registry, metadata | `ml.ModelVersion`: every training run, its data window, metrics, decision and the model itself | 4, 7 |
 | Serving | Batch prediction each morning into `ml.InquiryScore`, read by the dashboard's follow-up list | 5 |
 | Monitoring | Data drift (PSI) and live accuracy into `ml.DriftCheck`; alerts in `etl.Alert`; retraining | 6 |
-| Automation | Airflow: daily `ml_features → ml_score → ml_monitor` after the ETL, weekly `aisleco_weekly_train` | 7 |
+| Automation | Airflow: daily `ml_features → ml_score → ml_monitor → ml_forecast` after the ETL, weekly `aisleco_weekly_train` | 7 |
+| A second model, for Problem 1 | Demand forecast of the next 6 months: weddings and staff-hours against capacity | 8 |
 
 **The data is simulated** (`AisleCo_MultiZone_Architecture_v3.ipynb`): three years of inquiries, 2024 to 2026,
 where each couple's hidden readiness to book drives what the CRM records. The assumptions are listed in
@@ -58,7 +59,7 @@ from etl import db, pipeline
 from etl.config import Config
 from etl.__main__ import init_dw
 from load_snapshot import load
-from ml import features as F, train as T, score as S, monitor as M
+from ml import features as F, train as T, score as S, monitor as M, forecast as FC
 
 logging.basicConfig(level=logging.ERROR)
 pd.set_option("display.width", 170); pd.set_option("display.max_columns", 30); pd.set_option("display.max_colwidth", 90)
@@ -108,7 +109,9 @@ features (Chapter 7). Here it is three objects in the warehouse, in plain Postgr
   cutoff time it uses only rows dated before the cutoff. Training calls it with past cutoffs, the daily
   scoring with today, so both get features computed the same way.
 * `feature."InquiryFeatures"`: the offline store, one row per open inquiry per scoring day.
-* `feature."InquiryLabel"`: the outcome (booked or not) of closed inquiries, and when it became known.
+* `feature."InquiryLabel"`: the label, booked within 120 days of the inquiry (on it, or on a later inquiry by the
+  same customer) or not, and when that became final. A fixed window, not the CRM status: a couple marked Lost by
+  the 30-day no-reply rule who books on day 90 is a booking, and a label never changes once it exists.
 
 The design of the slides, entity + time index + features:
 
@@ -132,7 +135,7 @@ pit.set_index("AsOf").T
 """)
 
 md("""
-**Training examples.** Each closed inquiry is taken as it looked 1, 7, 14 and 30 days after it arrived, while it
+**Training examples.** Each labelled inquiry is taken as it looked 1, 7, 14 and 30 days after it arrived, while it
 was still open, and joined with its later outcome. This point-in-time join is what keeps the outcome out of the
 features: a feature can only use what had happened by that age.
 """)
@@ -141,7 +144,7 @@ code("""
 ASOF0 = date(2025, 10, 1)       # the first model is trained with what was known on this date
 with db.connect(cfg.dw_dsn, cfg) as c:
     ts = F.training_set(c, ASOF0)
-print(f"{len(ts):,} training rows from {ts.InquiryID.nunique():,} closed inquiries (known on {ASOF0}); booked share {ts.Booked.mean():.1%}")
+print(f"{len(ts):,} training rows from {ts.InquiryID.nunique():,} labelled inquiries (known on {ASOF0}); booked share {ts.Booked.mean():.1%}")
 ts.groupby("AgeDays").agg(rows=("Booked", "size"), booked_share=("Booked", "mean")).round(3)
 """)
 
@@ -173,18 +176,21 @@ md("""
 
 `ml.train.train(as_of)` runs the whole automated step:
 
-1. **Split by time**, never at random: test = inquiries received 270 to 90 days before the as-of date
-   (old enough for their outcome to be known), train = everything before.
+1. **Split by time**, never at random: test = inquiries received 300 to 120 days before the as-of date
+   (old enough for their 120-day label to be final), train = everything before.
 2. **Two candidates**: logistic regression and gradient boosting, the same preprocessing for both (one-hot for
    categories; missing values imputed with a "was missing" flag, since a missing reply time or wedding date is
    itself informative).
-3. **Baseline**: each channel's past booking rate. A model is only worth running if it beats this clearly.
+3. **Two baselines**: each channel's past booking rate, and a salesperson's rule of thumb written as code
+   (quoted > consulted > the couple wrote in the last 3 days). The rule answers "couldn't an experienced
+   salesperson just do this?": the model is only worth running if it clearly beats the stronger of the two.
 4. **Evaluation** on the test window: AUC (overall and by inquiry age), PR-AUC, and the share of all bookings
    found in the top 20% of scores (what Sales gets if it calls one couple in five).
-5. **Validation gate**: the best candidate is promoted only if its AUC is at least 0.05 above the baseline, and
-   not below the production model on at least 50 test inquiries that model never saw. The production model
-   learnt from every inquiry up to 90 days before its own as-of date, so after a weekly retrain only a week of
-   new inquiries is unseen: production is then kept, and is replaced about once a month, each time on evidence.
+5. **Validation gate**: the best candidate is promoted only if its AUC is at least 0.05 above the stronger baseline, and
+   at least as good as the production model on at least 50 test inquiries that model never saw (counted once
+   each; an inquiry has up to 4 test rows, one per scoring age). The production model learnt from every inquiry
+   up to 120 days before its own as-of date, so after a weekly retrain only a week of new inquiries is unseen:
+   production is kept until 50 new inquiries have outcomes, and then replaced only by a model that is not worse.
 6. **Registry**: the result, promoted or not, is written to `ml."ModelVersion"` with its data windows, metrics,
    decision, the training distributions (for drift checks) and the model itself. The promoted model is refit on
    train + test.
@@ -193,15 +199,16 @@ md("""
 code(r"""
 r0 = with_dw(T.train, ASOF0)
 print(f"model v{r0['version']} ({r0['algorithm']}): {r0['status']} - {r0['decision']}")
-m = pd.DataFrame({**{k: v for k, v in r0["candidates"].items()}, "baseline (channel rate)": r0["baseline"]}).T
+m = pd.DataFrame({**r0["candidates"], **{f"baseline: {k}": v for k, v in r0["baselines"].items()}}).T
 m = m.join(pd.DataFrame(m.pop("auc_by_day").tolist(), index=m.index).add_prefix("AUC day "))
 m
 """)
 
 code(r"""
 fig, ax = plt.subplots(figsize=(9, 3.6))
-days = list(r0["baseline"]["auc_by_day"])
-for (name, res), color in zip([*r0["candidates"].items(), ("baseline", r0["baseline"])], [BLUE, ORANGE, EDGE]):
+days = list(r0["test"]["auc_by_day"])
+curves = [*r0["candidates"].items(), *((f"baseline: {k}", v) for k, v in r0["baselines"].items())]
+for (name, res), color in zip(curves, [BLUE, ORANGE, EDGE, GREEN]):
     ax.plot(days, [res["auc_by_day"][d] for d in days], marker="o", color=color, lw=2, label=name)
 ax.axhline(0.5, color=INK2, ls=":", lw=1); ax.text(0, 0.51, "random", fontsize=8, color=INK2)
 ax.set_xlabel("inquiry age when scored (days)"); ax.set_ylabel("AUC on the test window"); ax.set_ylim(0.45, 1)
@@ -210,6 +217,10 @@ ax.set_title("The longer an inquiry is open, the more the couple's behaviour tel
 print(f"On day 1 the model has only the channel, budget, package, wedding date, our reply time and the first messages "
       f"(AUC {r0['test']['auc_by_day']['1']}). By day 14 the couple's replies and silences are visible "
       f"(AUC {r0['test']['auc_by_day']['14']}). The top 20% of scores contain {r0['test']['top20_capture']:.0%} of the bookings.")
+rule = r0["baselines"]["rule"]
+print(f"The salesperson's rule: AUC {rule['auc']} overall, {rule['auc_by_day']['1']} on day 1 and {rule['auc_by_day']['30']} on day 30. "
+      "Once a couple has been quoted the rule knows what the model knows; the model's lead is in the first two weeks, "
+      "before the couple's intent is obvious, which is when a follow-up can still change the outcome.")
 """)
 
 md("""
@@ -251,6 +262,34 @@ display(band)
 b = band.set_index("Band").booked_later.astype(float)
 print(f"Couples in the High band booked {b['High']:.0%} of the time, Medium {b['Medium']:.0%}, Low {b['Low']:.0%} "
       f"(every weekly score whose outcome is now known). Calling the High band first is where Sales' time pays off.")
+""")
+
+md("""
+**Who to call: the model against the rule, as a gains chart.** Every weekly score whose outcome is now known,
+sorted from most to least likely: how many of the later bookings does Sales reach by calling the first 10%, 20%,
+... of the list? The salesperson's rule is computed on the same days from the same stored features.
+""")
+
+code(r"""
+g = dw('SELECT s."Score"::float AS model, l."Booked" AS booked, f."Quoted", f."Consulted", '
+       'f."HoursSilent"::float AS "HoursSilent", f."CoupleMsgs" '
+       'FROM ml."InquiryScore" s JOIN feature."InquiryLabel" l USING ("InquiryID") '
+       'JOIN feature."InquiryFeatures" f ON f."InquiryID" = s."InquiryID" AND f."AsOf"::date = s."AsOfDate"')
+g["rule"] = T.rule_score(g)
+x = np.arange(1, len(g) + 1) / len(g) * 100
+fig, ax = plt.subplots(figsize=(7, 4.2))
+curve = {}
+for col, color in [("model", BLUE), ("rule", GREEN)]:
+    curve[col] = g.sort_values(col, ascending=False, kind="stable").booked.cumsum().values / g.booked.sum() * 100
+    ax.plot(x, curve[col], color=color, lw=2, label=col)
+top20 = {k: v[int(len(g) * .2) - 1] for k, v in curve.items()}
+ax.plot([0, 100], [0, 100], color=EDGE, ls=":", label="random"); ax.axvline(20, color=INK2, lw=0.8, ls="--")
+ax.set_xlabel("% of open inquiries called, best first"); ax.set_ylabel("% of later bookings reached")
+ax.legend(frameon=False, loc="lower right"); ax.spines[["top", "right"]].set_visible(False)
+ax.set_title("Gains: calling the top of the list", loc="left"); plt.tight_layout(); plt.show()
+print(f"Calling the top 20% of the list reaches {top20['model']:.0f}% of the later bookings with the model, "
+      f"{top20['rule']:.0f}% with the rule and 20% at random. To reach the bookings the model finds in its top 20%, "
+      f"Sales would have to call {x[np.argmax(curve['rule'] >= top20['model'])]:.0f}% of the list in the rule's order.")
 """)
 
 md("""
@@ -318,10 +357,10 @@ dw('SELECT "InquiryID", "Band", "Score", "Channel", "AgeDays", "HoursSilent", "C
 md("""
 **Automation (Airflow).** The same functions run in production as tasks, through the command line `python -m ml`:
 
-* `aisleco_daily_etl`: the 11 ETL steps, then `ml_features → ml_score → ml_monitor` (02:00 every day).
-* `aisleco_weekly_train`: `ml train` every Sunday at 04:00; also triggered by hand after a drift alert.
+* `aisleco_daily_etl`: the 11 ETL steps, then `ml_features → ml_score → ml_monitor → ml_forecast` (02:00 every day).
+* `aisleco_weekly_train`: `ml train` every Sunday at 04:00 (both models); also triggered by hand after a drift alert.
 
-**Dashboard.** `dashboard/app.py` (Streamlit) reads the `mart` views: Problem 1 capacity, Problem 2 conversion and
+**Dashboard.** `dashboard/app.py` (Streamlit) reads the `mart` views: Problem 1 capacity and the 6-month demand forecast, Problem 2 conversion and
 no-reply rate, the follow-up list, and model health. Run it locally against this notebook's warehouse:
 
 ```bash
@@ -338,13 +377,200 @@ for f in ["dashboard_followup.png", "dashboard_model_health.png"]:
 """)
 
 md("""
-## 8. Where this sits on the MLOps levels of Chapter 7
+## 8. A second model, for Problem 1: the demand forecast
+
+**Business problem (Problem 1, seasonal capacity).** Weddings bunch on auspicious dates and in the November to
+February season. In those months the planners went over their standard hours (87 employee-weeks over 100% in
+2024-2026), and couples were turned away because the date was full. Ops needs to know **months ahead** which
+months will be over capacity, while there is still time to book freelancers or stop accepting more weddings.
+
+**The question**: how many weddings, and how many staff-hours, will each of the next 6 months need, against the
+standard hours of the event staff?
+
+**Why "booked + pickup".** Weddings are booked 1 to 15 months ahead, so a month 2 months away is already mostly
+on the books. A forecast that ignores the bookings and predicts the month from the calendar alone throws that away.
+Hotels forecast this way: *final = already booked + the pickup still to come*. Every candidate here predicts the pickup.
+The chart shows how much of a month's final number of weddings is already booked at each horizon.
+""")
+
+code(r"""
+D = date(2027, 1, 15)
+with db.connect(cfg.dw_dsn, cfg) as c:
+    hist = FC.history(c, D)
+share = (hist.groupby("Horizon").OnBooks.sum() / hist.groupby("Horizon").Final.sum() * 100)
+monthly = hist.drop_duplicates("Month").set_index("Month").Final
+fig, ax = plt.subplots(1, 2, figsize=(16, 3.6), gridspec_kw={"width_ratios": [1, 2]})
+ax[0].bar(share.index.astype(str), share.values, color=BLUE)
+ax[0].set_xlabel("months ahead"); ax[0].set_title("% of a month's weddings already booked", loc="left")
+ax[1].bar(monthly.index, monthly.values, width=20, color=[ORANGE if m.month in (11, 12, 1, 2) else EDGE for m in monthly.index])
+ax[1].set_title("Weddings per month (orange: Nov-Feb season)", loc="left")
+for a in ax:
+    a.spines[["top", "right"]].set_visible(False)
+plt.tight_layout(); plt.show()
+print(f"{len(hist)} rows of history: the next 6 months as they stood on the 1st of each month since {hist.AsOf.min():%b %Y}, "
+      f"with the final count of each month that has ended. One month ahead, {share[1]:.0f}% of the weddings are already "
+      f"booked; six months ahead, {share[6]:.0f}%.")
+""")
+
+md("""
+**Features** (`feature.demand_features(as_of)`, one SQL definition, point in time like the conversion model's):
+weddings already booked for the month, open inquiries asking for a date in it, months ahead, season, number of
+auspicious days, the same month last year (as booked a year earlier at the same horizon, final, and the pickup
+it still had then), open inquiries already quoted, and bookings made in the last 28 days. The models learn from
+the features as they stood every Monday and every 1st of the month (about 800 rows instead of 150).
+
+**Candidates and the backtest.** Four candidates, two of them simple baselines:
+
+| Candidate | Pickup still to come |
+|---|---|
+| Seasonal naive (baseline) | Same month last year, final, minus what is booked |
+| Pickup average (baseline) | The average pickup seen at the same horizon and season |
+| Poisson regression | A count model on the features |
+| LightGBM | Small, subsampled trees with a Poisson loss on the features |
+
+With about 7 weddings a month, a random split is meaningless and a single test window is too small, so the
+evaluation is a **rolling-origin backtest**: on the 1st of each of the last 12 months, each candidate is fitted
+on the months that had ended by then and forecasts the next 6; it is scored on the months that have ended since.
+The metric is **WAPE** (absolute error as a share of the weddings), with an 80% interval whose coverage is checked.
+
+**Gate.** An ML candidate is used only if its WAPE beats the best baseline. Otherwise the baseline is registered as
+the production forecast: with this little data a simple method can win, and the registry should say so.
+""")
+
+code(r"""
+rd = with_dw(FC.train, D)
+print(f"demand model v{rd['version']}: {rd['algorithm']} - {rd['decision']}\n")
+res = pd.DataFrame(rd["candidates"]).T
+res.join(pd.DataFrame(res.pop("wape_by_horizon").tolist(), index=res.index).add_prefix("WAPE h")).sort_values("wape")
+""")
+
+code(r"""
+bt = rd["backtest"]
+fig, ax = plt.subplots(1, 2, figsize=(16, 3.6))
+for name, color in [(rd["algorithm"], BLUE), ("Poisson regression", ORANGE), ("seasonal naive", EDGE)]:
+    w = bt[bt.Candidate == name].groupby("Horizon").apply(lambda g: (g.Forecast - g.Final).abs().sum() / g.Final.sum() * 100, include_groups=False)
+    ax[0].plot(w.index, w.values, marker="o", lw=2, color=color, label=name)
+ax[0].set_xlabel("months ahead"); ax[0].set_ylabel("WAPE %"); ax[0].legend(frameon=False)
+ax[0].set_title("Backtest error by horizon", loc="left")
+h3 = bt[(bt.Candidate == rd["algorithm"]) & (bt.Horizon == 3)].sort_values("Month")
+ax[1].fill_between(h3.Month, h3.Lo, h3.Hi, color=BLUE, alpha=.15, label="80% interval")
+ax[1].plot(h3.Month, h3.Forecast, color=BLUE, lw=2, marker="o", label="forecast made 3 months ahead")
+ax[1].plot(h3.Month, h3.Final, color=INK, lw=0, marker="s", label="actual")
+ax[1].legend(frameon=False); ax[1].set_title("Forecast 3 months ahead against what happened", loc="left")
+for a in ax:
+    a.spines[["top", "right"]].set_visible(False)
+plt.tight_layout(); plt.show()
+""")
+
+md("""
+**Reading the result.** The calendar alone (seasonal naive) is far off: the number of weddings in a month swings
+from year to year, while what is already booked is known. Building on the bookings, the Poisson regression beats
+the pickup average overall and most clearly 4 to 6 months ahead, where open and quoted inquiries and last year's
+pickup tell more; one or two months ahead the month is almost all booked and the average is hard to beat. The
+gap is small (about 50 test months), so the weekly retraining keeps whichever candidate wins the backtest, the
+baseline included. This also answers *"why ML?"* with evidence rather than opinion.
+
+**Serving and action.** Each morning after the ETL, `ml_forecast` writes the next 6 months into
+`ml."DemandForecast"`. Weddings become staff-hours: the hours already assigned in each month's weeks (from
+`fact.FactEmployeeWeeklyWorkload`), plus the expected new weddings times the average hours per wedding, against
+the standard hours of the event staff (planners, coordinators, event staff). `mart.v_demand_forecast` turns that
+into a status: in 2024-2026, months at 85% of capacity or more had 8 to 12 employee-weeks over 100%, months
+at 65-85% had 2 to 9.
+
+| Status | Expected hours | Action |
+|---|---|---|
+| Over | 85% of capacity or more | Book freelancers now; take no more auspicious-date weddings without them |
+| Tight | 65-85% | Plan overtime; move planning work to earlier weeks |
+| OK | 35-65% | No action |
+| Quiet | under 35% | Promote off-peak packages; schedule leave and training |
+""")
+
+code(r"""
+fc = with_dw(FC.forecast, D)
+view = dw('SELECT * FROM mart.v_demand_forecast ORDER BY "Month"')
+fig, ax = plt.subplots(figsize=(11, 3.6))
+xs = np.arange(len(view)); lab = pd.to_datetime(view.Month).dt.strftime("%b %Y")
+ax.bar(xs - .2, view.BookedHours.astype(float), .4, color=EDGE, label="hours of booked weddings")
+ax.bar(xs + .2, view.ExpectedHours.astype(float), .4, color=BLUE, label="booked + expected")
+ax.scatter(xs, view.CapacityHours.astype(float), marker="_", s=900, color=RED, label="capacity")
+ax.plot(xs, view.CapacityHours.astype(float) * .85, lw=0, marker="_", ms=25, color=ORANGE, label="85% (Over)")
+ax.set_ylim(0, view.CapacityHours.astype(float).max() * 1.35)
+ax.set_xticks(xs, lab); ax.legend(frameon=False, ncols=4, loc="upper left"); ax.spines[["top", "right"]].set_visible(False)
+ax.set_title(f"Next 6 months as of {D:%d %b %Y}: staff-hours against capacity", loc="left"); plt.tight_layout(); plt.show()
+view[["Month", "booked", "expected_weddings", "low_80", "high_80", "ExpectedHours", "CapacityHours", "expected_utilization", "status", "action"]]
+""")
+
+md("""
+February to July is the quiet half of the year, so today's forecast asks for no action. **Would it have warned
+Ops before the last peak?** The next cell goes back to 1 Aug 2025 and uses only what was known that day: the
+pickup average fitted on the months that had ended by then, and the average hours per wedding held so far
+(all of a wedding's hours counted in its month, so the share runs higher than the weekly utilization).
+""")
+
+code(r"""
+A = date(2025, 8, 1)
+with db.connect(cfg.dw_dsn, cfg) as c:
+    past, then = FC.history(c, A), FC.compute(c, A)
+    per = float(c.execute('SELECT avg(b."TotalStaffHours") AS h FROM fact."FactEventBooking" b JOIN dim."DimDate" d '
+                          'ON d."DateKey" = b."EventDateKey" WHERE b."IsCancelled" = 0 AND d."FullDate" < %s', (A,)).fetchone()["h"])
+then["expected"] = then.OnBooks + FC.PickupAverage().fit(past).predict(then)
+after = dw('''SELECT date_trunc('month', week_start)::date AS "Month", sum("StandardWeeklyHours")::float AS capacity,
+                     round(sum("TotalAssignedHours") / sum("StandardWeeklyHours"), 2)::float AS actual_utilization,
+                     count(*) FILTER (WHERE is_over_100pct) AS staff_weeks_over_100
+              FROM mart.v_weekly_workload WHERE role = ANY(%s) GROUP BY 1''', (list(FC.OPS_ROLES),))
+then = then.merge(after, on="Month")
+then["expected_share"] = (then.expected * per / then.capacity).round(2)
+then["status then"] = pd.cut(then.expected_share, [-1, .35, .65, .85, 99], labels=["Quiet", "OK", "Tight", "Over"])
+print(f"Forecast made on {A:%d %b %Y} ({len(past)} rows of history, {per:.0f} staff-hours per wedding), against what happened:")
+then[["Month", "OnBooks", "expected", "expected_share", "status then", "actual_utilization", "staff_weeks_over_100"]].round(2)
+""")
+
+md("""
+**Monitoring the forecast.** Once a month has passed, `forecast.monitor` compares every forecast made for it with
+what happened (`mart.v_demand_accuracy`) and writes the WAPE of the last 6 months to `ml."DriftCheck"`; 0.2 above the
+backtest WAPE is an alert in `etl."Alert"`. To show it, the next cell replays March to December 2026 as production would have run it
+(the first month with a full year of backtest history): on the 1st of each month the weekly training retrains, and the forecast is made with what was known that day.
+""")
+
+code(r"""
+for d in pd.date_range("2026-03-01", "2026-12-01", freq="MS").date:
+    with db.connect(cfg.dw_dsn, cfg) as c:
+        FC.train(c, d); FC.forecast(c, d); c.commit()
+chk = with_dw(FC.monitor, date(2026, 12, 1))
+with_dw(FC.train, D); with_dw(FC.forecast, D)        # back to today: the dashboard shows the forecast of 15 Jan 2027
+acc = dw('SELECT * FROM mart.v_demand_accuracy WHERE "AsOfDate" < %s', (date(2026, 12, 1),))
+acc["err"] = (acc.Forecast.astype(float) - acc.actual).abs()
+print(f"{chk[0]} on 1 Dec 2026: {chk[1]} ({chk[2]}) - {chk[3]}")
+print(f"All {len(acc)} forecasts of months that ended by 1 Dec 2026: WAPE {acc.err.sum() / acc.actual.sum():.2f}, "
+      f"{acc.in_interval.mean():.0%} of the actual counts inside the 80% interval.")
+acc.groupby("Horizon").apply(lambda g: pd.Series({"forecasts": len(g), "WAPE": round(g.err.sum() / g.actual.sum(), 3),
+                                                  "in 80% interval": round(g.in_interval.mean(), 2)}), include_groups=False)
+""")
+
+md("""
+Known limits of the demand forecast:
+
+* **Monthly, not weekly**: about 7 weddings a month, under 2 a week. A weekly count would be mostly noise; the
+  weekly picture comes from the hours already assigned (`fact.FactEmployeeWeeklyWorkload`), which the forecast adds to.
+* The hours of a wedding that is not yet booked are all counted in its event month, though its planning hours
+  really spread over the weeks before. Cancelled bookings count as booked (about 4%): the CRM keeps no cancellation date.
+* In the 2026 replay above, the hours already assigned come from today's warehouse; the wedding counts are point in time.
+* The 80% interval assumes Poisson noise around the pickup. It holds 1 to 5 months ahead, but 6 months ahead the
+  real counts vary more than that and fall outside it more often: read the 6-month figure as a direction, not a range.
+* In the simulation every wedding is booked at least 40 days ahead, so one month ahead the forecast is just the
+  bookings. A real CRM will have some short-notice weddings.
+* The simulated CRM ends in December 2026, so the bookings for 2027 that would still come in real life never
+  arrive in this data. The forecast for 2027 is what production would show on 15 Jan 2027.
+""")
+
+md("""
+## 9. Where this sits on the MLOps levels of Chapter 7
 
 | Level | What it needs | This project |
 |---|---|---|
 | 0: manual | Scripts and notebooks, manual hand-over | Passed: nothing here is a manual step |
 | 1: ML pipeline automation | Automated training pipeline, continuous training on new data, feature store, metadata store and model registry, validation before deployment, monitoring that triggers retraining | **Yes**: weekly and drift-triggered training, `feature` schema, `ml.ModelVersion`, the gate, `ml.DriftCheck` + `etl.Alert` |
-| 2: CI/CD of the pipeline | Each code change to the pipeline built, tested and deployed automatically | Partly: 41 automated tests (7 for the model) run with one command, but nothing runs them on each push yet. A GitHub Actions workflow running `pytest` against a PostgreSQL service would be the next step |
+| 2: CI/CD of the pipeline | Each code change to the pipeline built, tested and deployed automatically | Partly: 45 automated tests (11 for the two models) run with one command, but nothing runs them on each push yet. A GitHub Actions workflow running `pytest` against a PostgreSQL service would be the next step |
 
 Known limits: descriptive fields (channel, budget, package, wedding date) are read as they are now, not as they
 were on past dates, because the CRM keeps no history for them; event times (messages, consultation, quote,

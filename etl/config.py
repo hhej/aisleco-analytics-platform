@@ -43,8 +43,9 @@ class Source:
     parents: tuple = () # (column, parent table) pairs, for merge / delete order
 
 
-# Parents before children. Customer, CustomerContact and CustomerChannelAccount are not
-# extracted at all, and CustomerID is not read from Inquiry or Event (Thai PDPA).
+# Parents before children. Customer, CustomerContact and CustomerChannelAccount are not extracted
+# (nothing uses names, contacts or chat accounts). CustomerID is read from Inquiry and Event so the
+# conversion label can see a couple who comes back on a new inquiry.
 SOURCES = (
     Source("MarketingChannel", "master", "ChannelID", ("ChannelID", "ChannelName", "ChannelType", "UpdatedAt")),
     Source("Package", "master", "PackageID",
@@ -56,7 +57,7 @@ SOURCES = (
     Source("AuspiciousDate", "master", "AuspiciousDateID",
            ("AuspiciousDateID", "CalendarDate", "DateType", "AuspiciousLevel", "UpdatedAt")),
     Source("Inquiry", "transaction", "InquiryID",
-           ("InquiryID", "ChannelID", "IndicativePackageID", "InquiryDate", "RequestedEventDate", "BudgetRange",
+           ("InquiryID", "CustomerID", "ChannelID", "IndicativePackageID", "InquiryDate", "RequestedEventDate", "BudgetRange",
             "ResponseTimeMinutes", "ContactedDate", "ConsultationDate", "QuotedDate", "QuotedAmount", "ClosedDate",
             "ClosedBy", "Status", "LostReason", "UpdatedAt"),
            (("ChannelID", "MarketingChannel"), ("IndicativePackageID", "Package"))),
@@ -64,7 +65,7 @@ SOURCES = (
            ("ChatMessageID", "InquiryID", "SentAt", "Direction", "SenderType", "EmployeeID", "UpdatedAt"),
            (("InquiryID", "Inquiry"), ("EmployeeID", "Employee"))),
     Source("Event", "transaction", "EventID",
-           ("EventID", "InquiryID", "PackageID", "EventDate", "GuestCount", "ComplexityLevel", "AgreedPackagePrice",
+           ("EventID", "CustomerID", "InquiryID", "PackageID", "EventDate", "GuestCount", "ComplexityLevel", "AgreedPackagePrice",
             "Status", "CreatedDate", "UpdatedAt"),
            (("InquiryID", "Inquiry"), ("PackageID", "Package"))),
     Source("EventEmployeeAssignment", "transaction", "EventEmployeeAssignmentID",

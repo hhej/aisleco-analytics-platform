@@ -1,0 +1,32 @@
+check,result,detail
+every nightly run succeeded,PASS,472 runs
+every night inside the 2-minute target,PASS,
+4a  CRM after 471 days of changes equals the final CRM,PASS,"Customer 1,929, CustomerChannelAccount 1,614, Inquiry 1,905, ChatMessage 22,432, Event 297, EventEmployeeAssignment 1,040"
+4b  FactInquiry: incremental = full load,PASS,"1,905 rows"
+4b  FactEventBooking: incremental = full load,PASS,297 rows
+4b  FactEmployeeWeeklyWorkload: same employee-weeks,PASS,"2,320 rows"
+4b  workload: the replay never has fewer hours than the full load,PASS,
+4b  workload: every difference is a week frozen before a cancellation of that employee's wedding,PASS,"147 employee-weeks, 11 cancelled weddings"
+4b  workload: identical from the week of the last cancellation on,PASS,
+4b  workload: the frozen cancellations were reported as late changes,PASS,8 alerts
+4b  source-to-target vs the simulator's Gold zone: only the frozen weeks differ,PASS,"76,770 values compared"
+4c  stored nightly features = recomputed point in time,PASS,"22,796 rows over 471 nights"
+4d  every night scored exactly the inquiries open that night,PASS,"22,796 scores"
+4d  no closed inquiry was ever scored,PASS,
+4e  exactly one production model,PASS,68 versions registered
+4e  each night scored with the model in production that night,PASS,
+4e  every replacement of production was compared with it,PASS,10 models promoted of 68 trained
+"4f  demand forecast: one production version, 6 months forecast every night after the first training",PASS,"50 versions from 2026-02-01, 348 nights forecast"
+5.1 CRM down: the ETL fails and the model refuses to score stale data,PASS,
+5.1 CRM down: nothing scored for 16 Jan,PASS,
+"5.1 after the rerun: 16 Jan scored, and the message of 15 Jan is in its features",PASS,couple messages 8 -> 9
+5.2 crash mid-load: the model waits for the run to finish,PASS,
+5.2 after resume: the consultation of 17 Jan is in the 18 Jan features and scored,PASS,
+"5.3 rerun of the same night: warehouse, features and scores unchanged",PASS,20 scores
+"5.4 late data: loaded on 19 Jan, although its timestamp is older than the last run",PASS,
+5.4 late data: the stored 18 Jan features keep what was known that night,PASS,"stored 9, recomputed now 10"
+5.5 bad row: rejected to the dead letter and not scored,PASS,
+"5.5 after the fix in the CRM: loaded, dead letter resolved, and scored",PASS,
+5.6 no model: scoring writes nothing and monitoring does not fail,PASS,
+6   every night fits the 2-minute target,PASS,
+6   weekly training fits the 2-minute target,PASS,

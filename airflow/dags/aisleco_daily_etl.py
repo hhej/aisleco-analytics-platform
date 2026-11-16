@@ -47,6 +47,7 @@ ML_DOCS = {
     "ml_features": "Feature store: features of every open inquiry as of today -> feature.InquiryFeatures",
     "ml_score": "Batch prediction with the production model -> ml.InquiryScore (sales follow-up list)",
     "ml_monitor": "Drift (PSI vs training) and live AUC -> ml.DriftCheck; alerts to etl.Alert",
+    "ml_forecast": "Demand forecast of the next 6 months -> ml.DemandForecast; its accuracy -> ml.DriftCheck",
 }
 # as-of = the Bangkok date the run is for (Airflow's ds is a UTC date), or the one given in the trigger config
 ASOF = ("{{ dag_run.conf['asof'] if dag_run and dag_run.conf and dag_run.conf.get('asof') "
@@ -95,4 +96,4 @@ with DAG(
             tasks[up] >> tasks[name]
     ml = [BashOperator(task_id=name, bash_command=f"{PY} -m ml {name[3:]} --asof {ASOF}",
                        cwd=ROOT, env=ENV, append_env=True, doc_md=doc) for name, doc in ML_DOCS.items()]
-    tasks["finish"] >> ml[0] >> ml[1] >> ml[2]
+    tasks["finish"] >> ml[0] >> ml[1] >> ml[2] >> ml[3]

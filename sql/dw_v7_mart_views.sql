@@ -108,20 +108,25 @@ GROUP BY 1, 2;
 
 -- ---------- Conversion model (feature store + registry, sql/ml_feature_store.sql) ----------
 
--- Sales follow-up list: open inquiries on the latest scoring day, most likely to book first
+-- Sales follow-up list: open inquiries on the latest scoring day, most likely to book first.
+-- ExpectedValue = chance to book x budget midpoint: a big wedding at 30% can be worth more than a small one at 40%.
 CREATE OR REPLACE VIEW mart.v_followup_list AS
 SELECT s."AsOfDate", s."InquiryID", s."Band", s."Score", f."Channel", f."BudgetRange", f."PackageType",
-       f."AgeDays", f."HoursSilent", f."CoupleMsgs", f."Consulted", f."Quoted", s."Version"
+       f."AgeDays", f."HoursSilent", f."CoupleMsgs", f."Consulted", f."Quoted",
+       s."Version", fi."BudgetMidpoint", round(s."Score" * fi."BudgetMidpoint") AS "ExpectedValue"
 FROM ml."InquiryScore" s
 JOIN feature."InquiryFeatures" f ON f."InquiryID" = s."InquiryID" AND f."AsOf"::date = s."AsOfDate"
+LEFT JOIN fact."FactInquiry" fi ON fi."InquiryID" = s."InquiryID"
 WHERE s."AsOfDate" = (SELECT max("AsOfDate") FROM ml."InquiryScore");
 
--- Model health: the production model's test metrics and its latest monitoring checks
+-- Model health: each production model's test metrics and its latest monitoring checks
 CREATE OR REPLACE VIEW mart.v_model_health AS
 SELECT v."Version", v."Algorithm", v."AsOfDate" AS trained_on_data_to, v."TrainedAt",
        (v."Metrics" -> 'chosen' ->> 'auc')::numeric AS test_auc,
        (v."Metrics" -> 'baseline' ->> 'auc')::numeric AS baseline_auc,
-       d."AsOfDate" AS checked_on, d."Check", d."Value", d."Status", d."Detail"
+       d."AsOfDate" AS checked_on, d."Check", d."Value", d."Status", d."Detail", v."Model",
+       (v."Metrics" -> 'baselines' -> 'rule' ->> 'auc')::numeric AS rule_auc,
+       (v."Metrics" -> 'chosen' ->> 'wape')::numeric AS test_wape
 FROM ml."ModelVersion" v
 LEFT JOIN ml."DriftCheck" d ON d."Version" = v."Version"
      AND d."AsOfDate" = (SELECT max("AsOfDate") FROM ml."DriftCheck" WHERE "Version" = v."Version")
@@ -131,5 +136,39 @@ WHERE v."Status" = 'production';
 CREATE OR REPLACE VIEW mart.v_model_versions AS
 SELECT "Version", "TrainedAt", "AsOfDate" AS trained_on_data_to, "Algorithm", "Status", "TrainRows", "TestRows",
        ("Metrics" -> 'chosen' ->> 'auc')::numeric AS test_auc, ("Metrics" -> 'baseline' ->> 'auc')::numeric AS baseline_auc,
-       ("Metrics" -> 'chosen' ->> 'top20_capture')::numeric AS top20_capture, "Decision"
+       ("Metrics" -> 'chosen' ->> 'top20_capture')::numeric AS top20_capture, "Decision", "Model",
+       ("Metrics" -> 'baselines' -> 'rule' ->> 'auc')::numeric AS rule_auc,
+       ("Metrics" -> 'chosen' ->> 'wape')::numeric AS test_wape
 FROM ml."ModelVersion";
+
+-- ---------- Demand forecast (Problem 1) ----------
+
+-- Next 6 months on the latest forecasting day: weddings booked and expected, staff-hours against the
+-- event staff's capacity, and what Ops should do. Thresholds from 2024-2026: months at 85%+ of
+-- capacity had 8-12 employee-weeks over 100%, months at 65-85% had 2-9.
+CREATE OR REPLACE VIEW mart.v_demand_forecast AS
+SELECT f."AsOfDate", f."Month", f."Horizon", f."OnBooks" AS booked, f."Forecast" AS expected_weddings,
+       f."Lo" AS low_80, f."Hi" AS high_80, f."BookedHours", f."ExpectedHours", f."CapacityHours",
+       round(f."ExpectedHours" / nullif(f."CapacityHours", 0), 3) AS expected_utilization,
+       CASE WHEN f."ExpectedHours" >= 0.85 * f."CapacityHours" THEN 'Over'
+            WHEN f."ExpectedHours" >= 0.65 * f."CapacityHours" THEN 'Tight'
+            WHEN f."ExpectedHours" < 0.35 * f."CapacityHours" THEN 'Quiet' ELSE 'OK' END AS status,
+       CASE WHEN f."ExpectedHours" >= 0.85 * f."CapacityHours"
+              THEN 'Book freelancers now; take no more auspicious-date weddings this month without them'
+            WHEN f."ExpectedHours" >= 0.65 * f."CapacityHours"
+              THEN 'Plan overtime and move planning work to earlier weeks'
+            WHEN f."ExpectedHours" < 0.35 * f."CapacityHours"
+              THEN 'Promote off-peak packages; schedule leave and training'
+            ELSE 'No action' END AS action,
+       f."Version"
+FROM ml."DemandForecast" f
+WHERE f."AsOfDate" = (SELECT max("AsOfDate") FROM ml."DemandForecast");
+
+-- Forecast against what happened, for every forecast of a month that has ended
+CREATE OR REPLACE VIEW mart.v_demand_accuracy AS
+SELECT f."AsOfDate", f."Month", f."Horizon", f."Forecast", f."Lo", f."Hi", a.actual,
+       (a.actual BETWEEN f."Lo" AND f."Hi") AS in_interval
+FROM ml."DemandForecast" f
+CROSS JOIN LATERAL (SELECT count(*) AS actual FROM stg."Event" e
+                    WHERE e."EventDate" >= f."Month" AND e."EventDate" < f."Month" + interval '1 month') a
+WHERE f."Month" + interval '1 month' <= (SELECT max("AsOfDate") FROM ml."DemandForecast");

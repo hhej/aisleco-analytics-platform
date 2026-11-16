@@ -14,7 +14,7 @@ Revision 12 adds the conversion model (feature store, MLOps) and the dashboard, 
 | `sql/oltp_v5_cdc_support.sql`, `sql/dw_v7_functions.sql`, `sql/dw_v7_mart_views.sql` | Trigger + indexes for incremental extraction; helper functions and shared rules; KPI views. Not importable into dbdiagram. |
 | `sql/transform/*.sql` | One transformation per dimension / fact |
 | `etl/` | The pipeline (Python): extract, stage, quality, load, pipeline runner, CLI |
-| `ml/`, `sql/ml_feature_store.sql` | Conversion model: point-in-time feature store (`feature`), training with a validation gate, registry, daily scoring and drift monitoring (`ml`); CLI `python -m ml` |
+| `ml/`, `sql/ml_feature_store.sql` | Conversion model: point-in-time feature store (`feature`), training with a validation gate, registry, daily scoring and drift monitoring (`ml`). Demand forecast (`ml/forecast.py`): next 6 months of weddings and staff-hours against capacity, rolling-origin backtest. CLI `python -m ml` |
 | `dashboard/app.py` | Streamlit dashboard on the `mart` views: Problem 1, Problem 2, follow-up list, model health |
 | `airflow/dags/aisleco_daily_etl.py`, `aisleco_weekly_train.py` | The ETL steps + the model's daily steps as an Airflow DAG; weekly training |
 | `AisleCo_ML_Conversion_Demo.ipynb` (+ `_Colab`) | **The Chapter 7 demo**: feature store, training and gate, registry, 15 months of weekly scoring, drift and retraining. Built with `scripts/build_ml_notebook.py [--colab]` |
@@ -53,7 +53,7 @@ mkdir -p data/sim && cp AisleCo_MultiZone_Architecture_v3.ipynb data/sim/ && \
 # the story, the checks, the demo
 .venv/bin/python scripts/load_walkthrough.py      # CRM + DW from scratch, Appendix B with 4 ETL runs
 .venv/bin/python -m etl status                    # run log
-.venv/bin/python -m pytest tests -q               # 41 tests
+.venv/bin/python -m pytest tests -q               # 45 tests
 ETL_CRM_DSN=dbname=aisleco_crm_bench ETL_DW_DSN=dbname=aisleco_dw_bench ETL_LANDING_DIR=data/landing_bench \
   .venv/bin/python scripts/benchmark.py data/sim/zones_v3 --stress   # offline, about 25 min: writes docs/stress_test.*
 .venv/bin/python scripts/build_demo_notebook.py && \

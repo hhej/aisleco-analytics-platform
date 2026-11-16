@@ -32,7 +32,7 @@ business rule itself. Two PostgreSQL databases are used:
 | Extract: full or incremental | Watermark on `UpdatedAt` per table; `--full-refresh` for a full load; deleted rows found from the key list | 4, 5 |
 | Extract: parallel, light on the source | One worker per table, all reading one shared snapshot (`pg_export_snapshot`); bulk `COPY`; `UpdatedAt` indexes | 1, 4 |
 | Transform: cleaning, joining, aggregation | SQL files in `sql/transform/`: response time from chat messages, staff hours spread over weeks, funnel flags | 2, 4 |
-| Transform: personal data | Customer, contact and chat-account tables are never extracted; `CustomerID` is not read (PDPA) | 1, 4 |
+| Transform: personal data | Customer, contact and chat-account tables are never extracted; only the `CustomerID` key is read, for the conversion label | 1, 4 |
 | Transform: validation, lineage, metadata | 27 data-quality rules stored in `etl.DqRule`; `_RunID` on every staging row; a manifest per run | 3, 7 |
 | Load: bulk, incremental | `COPY` into landing tables; facts merged, writing only the rows whose values changed | 4, 11 |
 | Load: integrity | Foreign and unique keys in DW v7; reconciliation after every load | 1, 12 |
@@ -322,7 +322,7 @@ print("SOURCE  CRM transaction.Inquiry"); display(crm('''SELECT "InquiryID","Cus
        "ConsultationDate","QuotedDate","QuotedAmount","Status","ClosedBy" FROM transaction."Inquiry" WHERE "InquiryID"=1'''))
 chat = crm('''SELECT "SentAt","Direction","SenderType","EmployeeID" FROM transaction."ChatMessage" WHERE "InquiryID"=1 ORDER BY 1''')
 print("SOURCE  CRM transaction.ChatMessage"); display(chat)
-print("SILVER  stg.Inquiry (CustomerID is not extracted: PDPA)"); display(dw('''SELECT "InquiryID","ChannelID","InquiryDate","BudgetRange",
+print("SILVER  stg.Inquiry"); display(dw('''SELECT "InquiryID","ChannelID","InquiryDate","BudgetRange",
        "QuotedAmount","Status","_RunID" FROM stg."Inquiry" WHERE "InquiryID"=1'''))
 print("GOLD    mart.v_inquiry (fact + DimInquiryOutcome)")
 f = dw('''SELECT "ChannelName","ResponseTimeMinutes","ResponseTimeBand","FirstResponderEmployeeKey","FurthestStage","Outcome",

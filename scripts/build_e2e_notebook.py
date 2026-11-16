@@ -48,7 +48,8 @@ the shared code and have their own tests:
 4. *A new model never had to beat the one in production.* All 67 Sunday trainings were promoted: production had
    learnt from every inquiry up to 90 days before its own training date, and the gate looked for test inquiries
    after that date, so it never found any to compare on. Production is now replaced only when the new model is
-   not worse on at least 50 inquiries production never saw; until then it is kept (section 4e).
+   at least as good on at least 50 inquiries production never saw (counted once each, not once per scoring
+   age); until then it is kept (section 4e).
 """)
 
 code("""
@@ -71,7 +72,7 @@ from crm import crm_exec
 from crosscheck import facts, compare_with_gold
 from benchmark import small_change
 import replay as R
-from ml import features as F, train as T, score as S, monitor as M
+from ml import features as F, train as T, score as S, monitor as M, forecast as FC
 
 logging.basicConfig(level=logging.ERROR)
 pd.set_option("display.width", 170); pd.set_option("display.max_columns", 30); pd.set_option("display.max_colwidth", 110)
@@ -97,10 +98,11 @@ def dw(sql, params=None, c=None):
         return pd.DataFrame(conn.execute(sql, params).fetchall())
 
 def ml_daily(d, c=None):
-    \"\"\"The three daily model tasks of aisleco_daily_etl: ml_features -> ml_score -> ml_monitor.\"\"\"
+    \"\"\"The four daily model tasks of aisleco_daily_etl: ml_features -> ml_score -> ml_monitor -> ml_forecast.\"\"\"
     c = c or cfg
     with db.connect(c.dw_dsn, c) as conn:
-        n = F.materialise(conn, d); s = S.score(conn, d); m = M.monitor(conn, d); conn.commit()
+        n = F.materialise(conn, d); s = S.score(conn, d); m = M.monitor(conn, d)
+        FC.forecast(conn, d); FC.monitor(conn, d); conn.commit()
     return n, s, m
 """)
 
@@ -114,7 +116,8 @@ md("""
 | after `finish` | `ml_features` | `features.materialise(D)` | the ETL run for D succeeded |
 | | `ml_score` | `score.score(D)`: the follow-up list | `ml_features` |
 | | `ml_monitor` | `monitor.monitor(D)`: drift, live AUC, alerts | `ml_score` |
-| Sunday 04:00 | `aisleco_weekly_train` | `train.train(D)`: train, gate, register | the ETL run for D succeeded |
+| | `ml_forecast` | `forecast.forecast(D)`, `forecast.monitor(D)`: next 6 months against capacity | `ml_monitor` |
+| Sunday 04:00 | `aisleco_weekly_train` | `train.train(D)`, `forecast.train(D)`: train, gate, register | the ETL run for D succeeded |
 
 The run for day D carries the CRM's changes up to midnight before D. The replay below gives the CRM one day of
 changes at a time and runs these steps in this order.
@@ -173,6 +176,10 @@ for d in days:
     if d.weekday() == 6:
         with db.connect(cfg.dw_dsn, cfg) as c:
             trained = T.train(c, d); c.commit()
+            try:
+                FC.train(c, d); c.commit()
+            except ValueError:            # under a year of bookings before Feb 2026: no demand backtest yet
+                c.rollback()
     t4 = time.perf_counter()
     log.append({"day": d, "crm_changes": sum(n.values()), "etl_s": t2 - t1, "ml_s": t3 - t2,
                 "train_s": t4 - t3 if trained else np.nan, "run": run_id, "open": n_feat, "scored": n_scored,
@@ -289,7 +296,9 @@ check("4c  stored nightly features = recomputed point in time", s1.astype(str).e
 
 # open on day D = arrived before D and not closed before D (outcomes from the final warehouse)
 sc = dw('SELECT "InquiryID", "AsOfDate", "Version" FROM ml."InquiryScore"')
-lab = dw('SELECT "InquiryID", "ClosedAt" FROM feature."InquiryLabel"').set_index("InquiryID").ClosedAt
+# closed = booked, or Lost/Converted in the CRM (the label's ClosedAt is when the 120-day outcome is final)
+lab = dw('SELECT i."InquiryID", coalesce(e."CreatedDate", CASE WHEN i."Status" IN (\'Lost\', \'Converted\') THEN i."ClosedDate" END) AS "ClosedAt" '
+         'FROM stg."Inquiry" i LEFT JOIN stg."Event" e USING ("InquiryID")').set_index("InquiryID").ClosedAt
 inq = dw('SELECT "InquiryID", "InquiryDate" FROM stg."Inquiry"')
 expected = sum(((inq.InquiryDate < pd.Timestamp(d)) & ~(inq.InquiryID.map(lab) < pd.Timestamp(d))).sum() for d in log.day)
 closed_scored = (sc.InquiryID.map(lab) < pd.to_datetime(sc.AsOfDate)).sum()
@@ -297,7 +306,7 @@ check("4d  every night scored exactly the inquiries open that night", len(sc) ==
       f"{len(sc):,} scores")
 check("4d  no closed inquiry was ever scored", closed_scored == 0)
 
-reg = dw('SELECT "Version", "AsOfDate", "Status", "Decision" FROM ml."ModelVersion" ORDER BY 1')
+reg = dw('SELECT "Version", "AsOfDate", "Status", "Decision" FROM ml."ModelVersion" WHERE "Model" = \'conversion\' ORDER BY 1')
 promoted = reg[reg.Status.isin(["production", "retired"])]
 expect = sc.AsOfDate.map(lambda d: promoted.Version[promoted.AsOfDate < d].max())
 check("4e  exactly one production model", (reg.Status == "production").sum() == 1, f"{len(reg)} versions registered")
@@ -305,6 +314,13 @@ check("4e  each night scored with the model in production that night", (sc.Versi
 compared = promoted.Decision.iloc[1:].str.contains("vs production v")
 check("4e  every replacement of production was compared with it", compared.all() and len(promoted) > 1,
       f"{len(promoted)} models promoted of {len(reg)} trained")
+
+dm = dw('SELECT "Version", "AsOfDate", "Status" FROM ml."ModelVersion" WHERE "Model" = \'demand\' ORDER BY 1')
+fcn = dw('SELECT "AsOfDate", count(*) AS months FROM ml."DemandForecast" GROUP BY 1')
+nights = [d for d in log.day if d > dm.AsOfDate.min()]
+check("4f  demand forecast: one production version, 6 months forecast every night after the first training",
+      (dm.Status == "production").sum() == 1 and set(fcn.AsOfDate) >= set(nights) and (fcn.months == 6).all(),
+      f"{len(dm)} versions from {dm.AsOfDate.min()}, {len(fcn)} nights forecast")
 reg.Status.value_counts().to_frame("versions")
 """)
 
@@ -447,7 +463,7 @@ for k in (15, 40):
     rows = sum(load(ZONES, k, big).values()); init_dw(big, drop=True)
     t = time.perf_counter(); pipeline.run(big, D, "full"); full_s = time.perf_counter() - t
     with db.connect(big.dw_dsn, big) as c:
-        t = time.perf_counter(); tr = T.train(c, D); train_s = time.perf_counter() - t; c.commit()
+        t = time.perf_counter(); tr = T.train(c, D); FC.train(c, D); train_s = time.perf_counter() - t; c.commit()
     small_change(big)
     t = time.perf_counter(); pipeline.run(big, D, "incremental"); inc_s = time.perf_counter() - t
     t = time.perf_counter(); n_open, n_sc, _ = ml_daily(D, big); ml_s = time.perf_counter() - t

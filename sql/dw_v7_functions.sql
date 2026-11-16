@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS work.run_ctx (run_id int, asof date, asof_week date);
 CREATE INDEX IF NOT EXISTS ix_stg_chat_inq ON stg."ChatMessage" ("InquiryID", "SentAt");
 CREATE INDEX IF NOT EXISTS ix_stg_eea_event ON stg."EventEmployeeAssignment" ("EventID");
 CREATE INDEX IF NOT EXISTS ix_stg_event_inq ON stg."Event" ("InquiryID");
+CREATE INDEX IF NOT EXISTS ix_stg_event_cust ON stg."Event" ("CustomerID");
 
 -- ---------------------------------------------------------------------
 -- Business rules shared by two facts, defined once (DW v6 rules, unchanged)

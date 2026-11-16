@@ -6,7 +6,8 @@ production model was trained on, and check its accuracy once outcomes are known.
   window is longer than the longest gap between wedding fairs (99 days), so the fair calendar
   itself does not look like drift.
   PSI < 0.1 ok, 0.1-0.2 warning, >= 0.2 alert. Missing rates are checked too.
-- Performance: AUC of the scores given 30-180 days ago whose outcome is now known,
+- Performance: AUC of the scores given 270-120 days ago (every outcome is final by then, not
+  only the early bookings),
   against the AUC measured on the test window at training.
 Alerts also go to etl.Alert, next to the ETL alerts."""
 import logging
@@ -18,7 +19,7 @@ from sklearn.metrics import roc_auc_score
 from etl import meta
 
 from . import features as F
-from .train import DRIFT_NUM, bin_shares, production
+from .train import DRIFT_NUM, LABEL_DAYS, bin_shares, production
 
 log = logging.getLogger("ml")
 WINDOW_DAYS, WARN, ALERT = 120, 0.1, 0.2
@@ -60,7 +61,7 @@ def monitor(conn, asof: date) -> list:
 
     s = conn.execute('SELECT s."Score", l."Booked" FROM ml."InquiryScore" s JOIN feature."InquiryLabel" l USING ("InquiryID") '
                      'WHERE s."AsOfDate" >= %s AND s."AsOfDate" < %s AND l."ClosedAt" < %s',
-                     (asof - timedelta(days=180), asof - timedelta(days=30), asof)).fetchall()
+                     (asof - timedelta(days=LABEL_DAYS + 150), asof - timedelta(days=LABEL_DAYS), asof)).fetchall()
     y = np.array([r["Booked"] for r in s])
     test_auc = prod["Metrics"]["chosen"]["auc"]
     if len(s) >= 30 and len(set(y)) == 2:

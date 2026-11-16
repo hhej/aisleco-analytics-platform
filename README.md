@@ -29,7 +29,7 @@ handling, recovery, the source-to-target check, performance and the batch-cap qu
 | `AisleCo_ML_Conversion_Demo.ipynb` (+ `_Colab`) | Chapter 7: feature store, training and gate, registry, scoring, drift and retraining |
 | `AisleCo_End_to_End_Stress_Test.ipynb` (+ `_Colab`) | The ETL and the model together, 471 nights replayed one by one, checked against a full load; failures between the two; load test |
 | `AisleCo_Pipeline_Showcase.html` | One interactive page for presenting: the pipeline map with each part's status, Google Cloud service and source code; one night played step by step; the 15-month replay; the failure tests; the dashboard; the model and its registry. Open it in a browser, works offline |
-| `ml/` | Conversion model: features, training, scoring, monitoring (`python -m ml`) |
+| `ml/` | Conversion model (features, training, scoring, monitoring) and demand forecast (`ml/forecast.py`); CLI `python -m ml` |
 | `dashboard/` | Streamlit dashboard (`streamlit run dashboard/app.py`) |
 | `etl/` | The pipeline: extract, stage, data quality, load, runner, command line |
 | `sql/` | Schemas (OLTP v5, DW v7), transformations, KPI views |

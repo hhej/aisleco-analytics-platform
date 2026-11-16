@@ -45,7 +45,7 @@ Two schema changes support the pipeline:
 
 | Topic | Design |
 |---|---|
-| What is read | 9 of the 12 CRM tables, and only the columns a KPI needs. Customer, CustomerContact and CustomerChannelAccount are never read, and `CustomerID` is not read from Inquiry or Event, so no personal data leaves the CRM (Thai PDPA). |
+| What is read | 9 of the 12 CRM tables, and only the columns a KPI needs. Customer, CustomerContact and CustomerChannelAccount are never read. `CustomerID` is read from Inquiry and Event, so the conversion label can link a couple's later booking to their earlier inquiry; it is a pseudonymous key, and names, phones, e-mails and chat accounts stay in the CRM. |
 | Incremental extraction | Each table has a **watermark** in `etl.Watermark`: the highest `UpdatedAt` already loaded. A run reads only rows with a later `UpdatedAt`. A full refresh (`--full-refresh`) reads everything. |
 | Late commits | A row written by a slow transaction that commits after the previous snapshot can carry a timestamp up to 5 minutes before that snapshot. Each run therefore re-reads from 5 minutes before the **previous snapshot time** (`etl.Watermark.ExtractedAt`), never later than the watermark. Re-reading is harmless because the load step only writes rows that changed. Anchoring the overlap to the snapshot rather than the watermark matters when a backlog is drained: the watermark is then far behind the snapshot, and nothing is re-read, so each run stays within its cap. |
 | Deleted rows | A timestamp cannot show a row that no longer exists, so every run also extracts the full list of primary keys (small and cheap). Staging rows whose key has disappeared are deleted. |

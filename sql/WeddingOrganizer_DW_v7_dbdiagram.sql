@@ -205,8 +205,9 @@ ALTER TABLE "fact"."FactEmployeeWeeklyWorkload" ADD FOREIGN KEY ("EmployeeKey") 
 
 -- ---------------------------------------------------------------------
 -- STAGING (Silver): replica of the CRM tables, merged incrementally.
--- Only the columns some KPI needs. Customer, CustomerContact and
--- CustomerChannelAccount are never extracted; CustomerID is dropped (PDPA).
+-- Only the columns some KPI or model needs. Customer, CustomerContact and
+-- CustomerChannelAccount are never extracted; CustomerID is kept on Inquiry and Event
+-- (the conversion label links a couple's later booking to their earlier inquiry).
 -- "_RunID" = the ETL run that last wrote the row (lineage).
 -- ---------------------------------------------------------------------
 
@@ -262,6 +263,7 @@ CREATE TABLE "stg"."AuspiciousDate" (
 
 CREATE TABLE "stg"."Inquiry" (
   "InquiryID" int PRIMARY KEY,
+  "CustomerID" int,
   "ChannelID" int,
   "IndicativePackageID" int,
   "InquiryDate" timestamp,
@@ -293,6 +295,7 @@ CREATE TABLE "stg"."ChatMessage" (
 
 CREATE TABLE "stg"."Event" (
   "EventID" int PRIMARY KEY,
+  "CustomerID" int,
   "InquiryID" int,
   "PackageID" int,
   "EventDate" date,
