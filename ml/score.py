@@ -25,7 +25,7 @@ REASONS = {
     "consulted": ("Came to a consultation", None),
     "customer_msgs_3d": ("Wrote {customer_msgs_3d:.0f} times in the last 3 days", None),
     "customer_msgs_7d": ("Active in chat this week", None),
-    "hours_since_customer_msg": ("Wrote {days_silent} days ago", "Silent for {days_silent} days"),
+    "hours_since_customer_msg": ("Wrote {wrote}", "Silent for {days_silent} days"),
     "replied_within_1h": ("We answered within an hour", "Our first reply took over an hour"),
     "log_response_minutes": ("We answered quickly", "Our first reply was slow"),
     "n_ask_meeting": ("Asked to meet", None), "n_ask_availability": ("Asked whether a date is free", None),
@@ -83,7 +83,9 @@ def contributions(model, X):
 
 
 def reasons(row, contrib):
-    vals = row.to_dict() | {"days_silent": f"{(row.hours_since_customer_msg or 0) / 24:.0f}", "budget": BUDGET.get(int(row.budget_band_ord), "")}
+    days = int((row.hours_since_customer_msg or 0) // 24)
+    vals = row.to_dict() | {"days_silent": days, "wrote": "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago",
+                            "budget": BUDGET.get(int(row.budget_band_ord), "")}
     up = [(c, v) for c, v in contrib.sort_values(ascending=False).items() if v > 0 and REASONS.get(c, (None,))[0]]
     down = [(c, v) for c, v in contrib.sort_values().items() if v < 0 and REASONS.get(c, (None, None))[1]]
     out, seen = [], set()
@@ -102,7 +104,7 @@ def reasons(row, contrib):
 def expected_fee(con, X, asof):
     pk = con.execute(f"""SELECT package_type, base_price, fee_rate FROM package WHERE effective_from <= DATE '{asof}'
                          AND (effective_to IS NULL OR effective_to >= DATE '{asof}')""").df().set_index("package_type")
-    median = con.execute(f"SELECT median(agreed_fee) FROM event WHERE NOT is_cancelled AND booked_at >= DATE '{asof}' - 365").fetchall()[0][0]
+    median = float(con.execute(f"SELECT median(agreed_fee) FROM event WHERE NOT is_cancelled AND booked_at >= DATE '{asof}' - 365").fetchall()[0][0])
     fee = np.where(X.package_interest == "Full", X.budget_midpoint_thb * float(pk.loc["Full", "fee_rate"]) / 100,
           np.where(X.package_interest.isin(["Partial", "DayOf"]), X.package_interest.map(lambda t: float(pk.loc[t, "base_price"]) if t in pk.index else median), median))
     return pd.Series(fee, index=X.index).fillna(float(median))
@@ -124,7 +126,7 @@ def score(asof: date, cfg=None) -> dict:
     X["fee"] = expected_fee(con, X, asof)
     X["ev"] = X.p * X.fee
     X["holdout"] = [int(D.is_holdout(i)) for i in X.index]
-    X["rank"] = X[X.holdout == 0].groupby("owner").ev.rank(ascending=False, method="first")
+    X["list_rank"] = X[X.holdout == 0].groupby("owner").ev.rank(ascending=False, method="first")
     X["band"] = np.select([X.p >= model.thresholds["high"], X.p >= model.thresholds["medium"]], ["High", "Medium"], "Low")
     X["badge"] = np.where(X.requested_week_utilization >= 1.0, "Full", np.where(X.requested_week_utilization >= 0.85, "Tight", "Room"))
     C = contributions(model, X)
@@ -139,7 +141,7 @@ def score(asof: date, cfg=None) -> dict:
         with c.cursor() as cur:
             cur.executemany('INSERT INTO gold."FactLeadScore" VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                             [(dk, int(i), ch.get(r.channel, -1), ow.get(int(r.owner), -1) if pd.notna(r.owner) else -1, f"v{mv.version}",
-                              round(float(r.p), 4), round(float(r.ev), 2), None if pd.isna(r.rank) else int(r.rank), r.band, int(r.holdout),
+                              round(float(r.p), 4), round(float(r.ev), 2), None if pd.isna(r.list_rank) else int(r.list_rank), r.band, int(r.holdout),
                               *rs, r.nba) for (i, r), rs in zip(X.iterrows(), R)])
             cur.executemany("INSERT INTO feature.lead_features_daily VALUES (%s,%s,%s)",
                             [(asof, int(i), Jsonb(json.loads(r[D.FEATURES].to_json()))) for i, r in X.iterrows()])

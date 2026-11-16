@@ -7,6 +7,7 @@
   python -m ml daily --asof D             score + monitor
   python -m ml forecast --asof D          staffing-demand forecast + backtest → gold.FactDemandForecast
   python -m ml text --asof D              TF-IDF text experiment → docs/v2/ml_text_experiment.md
+  python -m ml card                       model card of the champion → docs/v2/model_card_lead_conversion.md
   python -m ml eda --asof D               exploratory report → docs/v2/ml_eda.md
   python -m ml rollback                   champion ← previous
 """
@@ -55,6 +56,7 @@ def main(argv=None):
         if n == "train":
             a.add_argument("--trials", type=int)
     sub.add_parser("rollback")
+    sub.add_parser("card")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     cfg = Config()
@@ -73,6 +75,9 @@ def main(argv=None):
     elif args.cmd == "forecast":
         from ml import forecast
         print(json.dumps(forecast.run(args.asof, cfg), indent=1, default=str))
+    elif args.cmd == "card":
+        from ml import card
+        print(card.run(cfg))
     elif args.cmd == "text":
         from ml import text_experiment
         print(json.dumps(text_experiment.run(args.asof), indent=1))

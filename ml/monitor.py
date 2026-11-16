@@ -15,6 +15,7 @@ from ml.train import MODEL, TRACKING, ece
 from pipeline.config import Config
 
 log = logging.getLogger("ml")
+SEASONAL = {"inquiry_month", "inquiry_dow"}     # calendar position, not drift
 
 
 def psi(expected: dict, actual: pd.Series) -> float:
@@ -39,24 +40,28 @@ def monitor(asof: date, cfg=None) -> dict:
     with psycopg.connect(cfg.dw_dsn) as c:
         today = pd.DataFrame([r[0] for r in c.execute("SELECT features FROM feature.lead_features_daily WHERE score_date = %s", (asof,))])
         if not today.empty:
-            train = pd.DataFrame()   # training distribution comes from the stored stats, not raw rows
-            for f, s in st["num"].items():
-                if f not in today:
+            # reference: every open lead on every day of the champion's test period (the same population as a scoring day)
+            test_end = date.fromisoformat(mlflow.get_run(mv.run_id).data.params["test_end"])
+            con = D.connect(cfg)
+            ref = D.dataset(con, test_end)
+            ref = ref[ref.score_date >= test_end - timedelta(180)]
+            for f in model.features:
+                if f in SEASONAL or f not in today:
                     continue
+                if f in D.CAT:
+                    p = psi(ref[f].astype(str).value_counts(normalize=True).to_dict(), today[f].astype(str).value_counts(normalize=True))
+                    rows.append(("psi", f, p, 0.2, "alert" if p > 0.2 else "watch" if p > 0.1 else "ok", "category shares"))
+                    continue
+                s = st["num"][f]
                 v = pd.to_numeric(today[f], errors="coerce")
-                tr_shares = {**{str(k): 1 / (len(s["edges"]) + 1) for k in range(len(s["edges"]) + 1)}}   # deciles: equal shares by design
-                tr_shares = {k: v_ * (1 - s["missing"]) for k, v_ in tr_shares.items()} | {"missing": s["missing"]}
-                p = psi(tr_shares, bins(v, s["edges"]))
-                rows.append(("psi", f, p, 0.2, "alert" if p > 0.2 else "watch" if p > 0.1 else "ok", f"{len(v)} rows"))
-                miss = float(v.isna().mean()) - s["missing"]
-                rows.append(("missing_share_change", f, miss, 0.10, "alert" if miss > 0.10 else "ok", f"now {v.isna().mean():.0%}, training {s['missing']:.0%}"))
+                p = psi(bins(ref[f], s["edges"]).to_dict(), bins(v, s["edges"]))
+                rows.append(("psi", f, p, 0.2, "alert" if p > 0.2 else "watch" if p > 0.1 else "ok", f"{len(v)} rows vs {len(ref)} reference rows"))
+                miss = float(v.isna().mean()) - float(ref[f].isna().mean())
+                rows.append(("missing_share_change", f, miss, 0.10, "alert" if miss > 0.10 else "ok",
+                             f"now {v.isna().mean():.0%}, reference {ref[f].isna().mean():.0%}"))
                 if s["max"] is not None:
                     out = int(((v > s["max"]) | (v < s["min"])).sum())
                     rows.append(("outside_training_range", f, out, None, "watch" if out else "ok", f"range {s['min']}..{s['max']}"))
-            for f, shares in st["cat"].items():
-                if f in today:
-                    p = psi(shares, today[f].astype(str).value_counts(normalize=True))
-                    rows.append(("psi", f, p, 0.2, "alert" if p > 0.2 else "watch" if p > 0.1 else "ok", "category shares"))
         # performance on matured labels: scores made LABEL_DAYS to LABEL_DAYS + 56 days ago, outcome known now
         lab = pd.DataFrame(c.execute('''
             SELECT s."InquiryID", d."FullDate" AS score_date, s."Probability"::float AS p, s."IsHoldout" AS holdout, s."Rank" AS rank,

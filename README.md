@@ -1,44 +1,39 @@
-# Aisle & Co. data pipeline and conversion model (MADT 8102 capstone, Chapters 6 and 7)
+# Aisle & Co. analytics platform (MADT 8102 capstone, v2)
 
-ETL demo (Chapter 6): [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hhej/aisleco-etl-pipeline/blob/main/AisleCo_ETL_Pipeline_Demo_Colab.ipynb)
+A wedding organizer's end-to-end analytics system, running entirely on one MacBook: four source systems, a data lake
+(Bronze/Silver), a Kimball warehouse with role-based marts, a lead-conversion model and a staffing-demand forecast with
+MLOps, and a web app with a dashboard per role. All data is simulated by a business simulator (`sim/`) that writes
+only through the doors a real company would use.
 
-Conversion model and MLOps (Chapter 7): [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hhej/aisleco-etl-pipeline/blob/main/AisleCo_ML_Conversion_Demo_Colab.ipynb)
+**Business problems.** (1) Seasonal demand and capacity: staff overloaded in Nov–Feb and idle in Buddhist Lent.
+(2) High inquiry, low conversion: about 1,500 inquiries a year, 6–8 % book.
 
-End to end, ETL + model day by day (stress test): [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hhej/aisleco-etl-pipeline/blob/main/AisleCo_End_to_End_Stress_Test_Colab.ipynb)
+## Where things are
 
-ETL pipeline from the wedding organizer's CRM (PostgreSQL, OLTP v5) to its data warehouse (DW v7), built for
-two business problems: seasonal demand and capacity (Problem 1) and high inquiry, low conversion (Problem 2).
-On top of the warehouse: a feature store in PostgreSQL, a conversion model that scores every open inquiry each
-morning (with a validation gate, a model registry, drift monitoring and weekly retraining, all run by Airflow), and
-a Streamlit dashboard. All data in this repository is synthetic: fictional couples and three simulated business years.
+| Layer | Where | Spec |
+|---|---|---|
+| Sources | CRM `aisleco_crm` (PostgreSQL), chat gateway (LINE/Meta webhooks, :8001), fair-tablet drops, Google Thai holiday calendar + auspicious dates | [01](docs/v2/01_sources_and_ingestion.md) |
+| Lake | `lake/landing`, `lake/bronze` (raw, immutable), `lake/silver` (Parquet), `lake/silver_restricted`, `lake/quarantine` | [02](docs/v2/02_data_lake.md) |
+| Warehouse | `aisleco_dw`: `gold` star schema, `mart_sales` / `mart_ops` / `mart_exec` / `mart_platform`, `sales_pii` | [03](docs/v2/03_warehouse_and_marts.md) |
+| Models | `ml/` (features, training, scoring, monitoring, forecast), MLflow (:5050) | [04](docs/v2/04_machine_learning.md) |
+| Dashboards | `app/` (FastAPI + React), http://127.0.0.1:8000 | [05](docs/v2/05_dashboards.md) |
+| Simulation | `sim/` | [06](docs/v2/06_simulation.md) |
+| Plan and progress | [docs/v2/PLAN.md](docs/v2/PLAN.md) | |
+| Data catalog | [docs/v2/catalog.html](docs/v2/catalog.html) (also at /catalog in the app) | |
 
-## Run it in Google Colab
+## Run it
 
-Open a badge above and choose **Runtime → Run all**. The first two cells clone this repository and install
-PostgreSQL 16 inside the Colab session. The ML notebook takes about 4 minutes. The ETL notebook takes about 7
-minutes on a standard Colab machine (about 2 for the setup, about 3 for the automated tests). The ETL notebook
-shows the architecture and schema, both business problems followed run by run, data-quality and error
-handling, recovery, the source-to-target check, performance and the batch-cap queue, and all automated tests.
+```bash
+brew services start postgresql@16
+scripts/rebuild.sh                      # everything from nothing (≈ 45 min)
+scripts/services.sh start               # gateway :8001, MLflow :5050, Airflow :8080, web app :8000
+```
 
-## What is here
+Daily operation (what Airflow does): `aisleco_sim_day` 01:00 simulates yesterday; `aisleco_daily` 02:00 runs
+`python -m pipeline run`, then `python -m ml score`, `monitor`, `forecast`; `aisleco_weekly_train` retrains on Sundays.
 
-| Path | Contents |
-|---|---|
-| `AisleCo_ETL_Pipeline_Demo_Colab.ipynb` | The demo for Colab (no saved outputs; run it) |
-| `AisleCo_ETL_Pipeline_Demo.ipynb` | The same demo for a local run, with its outputs saved |
-| `AisleCo_ML_Conversion_Demo.ipynb` (+ `_Colab`) | Chapter 7: feature store, training and gate, registry, scoring, drift and retraining |
-| `AisleCo_End_to_End_Stress_Test.ipynb` (+ `_Colab`) | The ETL and the model together, 471 nights replayed one by one, checked against a full load; failures between the two; load test |
-| `AisleCo_Pipeline_Showcase.html` | One interactive page for presenting: the pipeline map with each part's status, Google Cloud service and source code; one night played step by step; the 15-month replay; the failure tests; the dashboard; the model and its registry. Open it in a browser, works offline |
-| `ml/` | Conversion model (features, training, scoring, monitoring) and demand forecast (`ml/forecast.py`); CLI `python -m ml` |
-| `dashboard/` | Streamlit dashboard (`streamlit run dashboard/app.py`) |
-| `etl/` | The pipeline: extract, stage, data quality, load, runner, command line |
-| `sql/` | Schemas (OLTP v5, DW v7), transformations, KPI views |
-| `tests/` | 40 pytest tests |
-| `scripts/` | Walkthrough loader, simulated-data loader, cross-check, benchmark and stress test, notebook builder |
-| `airflow/dags/` | The same steps as Airflow DAGs: daily ETL + scoring, weekly training |
-| `docs/` | Section 6 (ETL design), Section 7 (model and MLOps), diagrams, stress-test results, dashboard screenshots |
-| `data/sim/zones_v3/` | Three simulated business years, used by the source-to-target check and the model |
+Command lines: `python -m sim …`, `python -m pipeline init|run|resume|status`, `python -m ml train|score|monitor|forecast|eda|text|rollback`.
+Tests: `pytest tests -q` (the slow Chapter 6 failure tests use their own `*_e2e*` databases).
+Demo logins: may, ken, nok (Sales), som (Operations), ann (Executive), dev (Data); password `aisleco2026`.
 
-`README_current_files.md` describes every file and the local setup (macOS, PostgreSQL 16, Airflow).
-
-![Dashboard: follow-up list](docs/dashboard_followup.png)
+v1 (Streamlit, notebooks, Colab) is kept in `archive/v1/`.
