@@ -1,13 +1,7 @@
 """Data & ML health (Spec 05 §3.5) and the demo panel (§3.6). Data team only."""
-import base64
-import hashlib
-import hmac
-import json
 import os
-import secrets
 import subprocess
 import sys
-import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -55,28 +49,17 @@ class LineDemo(BaseModel):
 
 @router.post("/api/demo/line")
 def demo_line(body: LineDemo, user: dict = Depends(require("data"))):
-    """Send one LINE message as a new couple: a signed webhook POST to the chat gateway, exactly as LINE would."""
+    """Send one LINE message as a new couple, now: the CRM's chat module creates the couple and the inquiry, and a signed
+    webhook goes to the chat gateway exactly as LINE would send it (sim.live_message)."""
+    from sim.__main__ import live_message
     now = datetime.now(BKK)
-    event_id = "01J" + secrets.token_hex(12).upper()[:23]
-    ev = {"type": "message", "mode": "active", "timestamp": int(now.timestamp() * 1000),
-          "source": {"type": "user", "userId": "U" + secrets.token_hex(16)}, "webhookEventId": event_id,
-          "deliveryContext": {"isRedelivery": False}, "replyToken": secrets.token_hex(16),
-          "message": {"id": str(int(time.time() * 1000)), "type": "text", "quoteToken": "q" + secrets.token_hex(8), "text": body.text}}
-    raw = json.dumps({"destination": "U4af4980629aisleco", "events": [ev]}, ensure_ascii=False).encode()
-    sig = base64.b64encode(hmac.new(settings.LINE_CHANNEL_SECRET.encode(), raw, hashlib.sha256).digest()).decode()
     try:
-        r = httpx.post(f"{GATEWAY}/webhook/line", content=raw, headers={"x-line-signature": sig, "Content-Type": "application/json"}, timeout=5)
+        created = live_message(body.text)
     except httpx.HTTPError:
         raise HTTPException(503, "the chat gateway is not running (scripts/services.sh start gateway)")
-    if r.status_code != 200:
-        raise HTTPException(502, f"gateway answered {r.status_code}: {r.text[:200]}")
-    # the gateway files by its own receive time (Bangkok); look for our event in that hour's file
-    for t in (now, now + timedelta(minutes=1)):
-        path = settings.LAKE_DIR / "landing/chat/platform=line" / f"received_date={t:%Y-%m-%d}" / f"hour={t:%H}" / "events.jsonl"
-        if path.exists() and event_id in path.read_text(encoding="utf-8"):
-            return {"ok": True, "event_id": event_id, "landed_file": str(path.relative_to(ROOT) if ROOT in path.parents else path),
-                    "received_at": now.isoformat(timespec="seconds")}
-    return {"ok": True, "event_id": event_id, "landed_file": None, "received_at": now.isoformat(timespec="seconds")}
+    path = settings.LAKE_DIR / "landing/chat/platform=line" / f"received_date={now:%Y-%m-%d}" / f"hour={now:%H}" / "events.jsonl"
+    return {"ok": True, **created, "landed_file": str(path.relative_to(ROOT)) if path.exists() else None,
+            "received_at": now.isoformat(timespec="seconds")}
 
 
 @router.post("/api/demo/run")

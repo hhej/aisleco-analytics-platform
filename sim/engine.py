@@ -180,10 +180,10 @@ class World:
         return bool(lead.quote and lead.quote / ((lo + hi) / 2 * 1000) > .16)
 
     # ---------- messages ----------
-    def customer_msg(self, day, lead, t, its, code=None, first=False):
+    def customer_msg(self, day, lead, t, its, code=None, first=False, text=None, reply=True):
         if lead.account is None:
             return
-        txt = self.text(lead, its, greet=first)
+        txt = text or self.text(lead, its, greet=first)
         if code:
             txt = f"{code} {txt}"
         mid = self.new_id("msg")
@@ -196,6 +196,8 @@ class World:
         lead.last_cust = t
         if "price_objection" in its:
             lead.objected = True
+        if not reply:            # live demo: a person in the room answers, not the simulator
+            return
         # the inbox answers: bot outside hours, staff when open (6 % typed on the phone and never logged)
         if not (OPEN_H <= t.hour < CLOSE_H):
             self.staff_msg(day, lead, t + timedelta(seconds=self.rng.randint(2, 20)), bot=True)

@@ -132,6 +132,29 @@ def run(to, ranker=list_ranker):
     print(f"simulated {n} days to {w.last_day} in {_time.time() - t0:.0f}s")
 
 
+def live_message(text, nick=None):
+    """Live demo: a new couple writes to the LINE OA *now* (real clock). The CRM gets the customer, account, inquiry
+    and message row as its chat module would, and the signed webhook goes to the gateway. Returns what was created."""
+    from datetime import datetime
+    w = pickle.loads(STATE.read_bytes())
+    now = datetime.now().replace(microsecond=0)
+    day = __import__("sim.engine", fromlist=["Day"]).Day()
+    w.today = now.date()
+    lead, _ = w.new_lead(day, now, "LINE OA")
+    if nick:
+        lead.nick = nick
+    w.open_account(day, lead, "line", now)
+    w.customer_msg(day, lead, now, [], first=True, text=text, reply=False)
+    with psycopg.connect(CRM_DSN) as c:
+        io.write_crm(c, day)
+        io.sync_sequences(c)
+        c.commit()
+    gw = io.Gateway(w.rng)
+    gw.deliver(day)
+    STATE.write_bytes(pickle.dumps(w))
+    return {"inquiry_id": lead.iid, "customer_id": lead.cid, "line_user_id": lead.user_id, "sent_at": now.isoformat()}
+
+
 REPORT = """
 WITH i AS (SELECT *, extract(year FROM "InquiryDate")::int y FROM transaction."Inquiry"),
      e AS (SELECT *, extract(year FROM "EventDate")::int y FROM transaction."Event" WHERE "Status" <> 'Cancelled')
@@ -180,6 +203,9 @@ def main():
     p = sub.add_parser("day")
     p.add_argument("--date", type=date.fromisoformat, required=True)
     sub.add_parser("report")
+    p = sub.add_parser("message")
+    p.add_argument("--text", default="สวัสดีค่ะ สนใจ Full Planning ค่ะ ว่างวันที่ 13 ก.พ. ไหมคะ แขกประมาณ 300 คน")
+    p.add_argument("--nick")
     a = ap.parse_args()
     if a.cmd == "init":
         init(a.reset, a.seed, a.scale, a.start)
@@ -187,6 +213,8 @@ def main():
         run(a.to)
     elif a.cmd == "day":
         run(a.date)
+    elif a.cmd == "message":
+        print(live_message(a.text, a.nick))
     else:
         report()
 

@@ -34,8 +34,11 @@ export default function Today({ me }: { me: Me }) {
         <Tile kpi="followups_done" value={<>{done}<span className="text-ink-3 text-[18px] font-medium"> / {list.length || d.list_size}</span></>}
           sub={list.length ? "Couples on today's list marked as contacted" : "The list appears when today's scores are in"} />
         <Tile kpi="bookings_this_month" value={int(bookings)} sub={<>Target {team ? `${8 * Math.max(1, week.length)} for the team` : 8} · month to date</>} />
-        <Tile kpi="median_first_reply_7d" value={team ? week.map((w) => `${w.nickname} ${minutes(w.median_first_reply_min_7d)}`).join(" · ") || "–" : minutes(replyOne)}
-          tone={!team && (replyOne ?? 0) > 60 ? "tight" : undefined} sub="Target 60 min · last 7 days" />
+        {/* team view: the slowest salesperson as the headline, everyone in the line below (a long list overflowed the tile) */}
+        <Tile kpi="median_first_reply_7d"
+          value={team ? minutes(Math.max(...week.map((w) => n(w.median_first_reply_min_7d) ?? 0))) : minutes(replyOne)}
+          tone={(team ? Math.max(...week.map((w) => n(w.median_first_reply_min_7d) ?? 0)) : replyOne ?? 0) > 60 ? "tight" : undefined}
+          sub={team ? <>Slowest · {week.map((w) => `${w.nickname} ${minutes(w.median_first_reply_min_7d)}`).join(" · ")} · target 60 min</> : "Target 60 min · last 7 days"} />
       </div>
 
       <Card className="mb-5" title={`New since yesterday (${(d.new as Row[]).length})`} question="Couples who wrote and have no reply yet. Reply first.">
