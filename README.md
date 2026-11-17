@@ -71,30 +71,30 @@ Sales list shows each requested date's capacity badge, and the Operations foreca
 ```mermaid
 flowchart LR
   subgraph Sources["Source systems"]
-    CRM[("CRM\nPostgreSQL aisleco_crm\nOLTP v6, 13 tables")]
-    GW["Chat gateway :8001\nLINE / Messenger / Instagram\nwebhooks + inbox send log"]
-    TAB["Wedding-fair tablets\noffline JSON batches"]
-    EXT["External calendars\nGoogle Thai holidays (ICS)\nauspicious dates (CSV)"]
+    CRM[("CRM<br/>PostgreSQL aisleco_crm<br/>OLTP v6, 13 tables")]
+    GW["Chat gateway :8001<br/>LINE / Messenger / Instagram<br/>webhooks + inbox send log"]
+    TAB["Wedding-fair tablets<br/>offline JSON batches"]
+    EXT["External calendars<br/>Google Thai holidays (ICS)<br/>auspicious dates (CSV)"]
   end
   subgraph Lake["Data lake  lake/ (files)"]
-    LAND["landing\n(transient)"]
-    BRZ["Bronze\nraw, immutable,\nmanifests + checksums"]
-    SLV["Silver\nParquet, cleaned,\nconformed, no PII"]
-    RST["Silver restricted\nmasked text, names"]
-    QUA["quarantine\nrejected rows + reason"]
+    LAND["landing<br/>(transient)"]
+    BRZ["Bronze<br/>raw, immutable,<br/>manifests + checksums"]
+    SLV["Silver<br/>Parquet, cleaned,<br/>conformed, no PII"]
+    RST["Silver restricted<br/>masked text, names"]
+    QUA["quarantine<br/>rejected rows + reason"]
   end
   subgraph DW["Warehouse  aisleco_dw (PostgreSQL)"]
-    GOLD["Gold star schema\n5 dims (SCD2) · 6 facts"]
-    MARTS["Role marts\nmart_sales · mart_ops\nmart_exec · mart_platform"]
-    PII["sales_pii\n(Sales role only)"]
-    FS["feature store\n+ ml bookkeeping"]
+    GOLD["Gold star schema<br/>5 dims (SCD2) · 6 facts"]
+    MARTS["Role marts<br/>mart_sales · mart_ops<br/>mart_exec · mart_platform"]
+    PII["sales_pii<br/>(Sales role only)"]
+    FS["feature store<br/>+ ml bookkeeping"]
   end
   subgraph Use["Use"]
-    APP["Web app :8000\nFastAPI + React\nper-role logins"]
-    ML["Models\nlead conversion\nstaffing forecast"]
-    MLF["MLflow :5050\nregistry"]
+    APP["Web app :8000<br/>FastAPI + React<br/>per-role logins"]
+    ML["Models<br/>lead conversion<br/>staffing forecast"]
+    MLF["MLflow :5050<br/>registry"]
   end
-  CRM -- "nightly incremental CDC\n(watermark + key list)" --> BRZ
+  CRM -- "nightly incremental CDC<br/>(watermark + key list)" --> BRZ
   GW -- "push, raw JSONL per hour" --> LAND
   TAB -- "file drop" --> LAND
   EXT -- "monthly pull / yearly file" --> LAND
