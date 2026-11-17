@@ -157,6 +157,8 @@ Hand back to Presenter A: "Back to the limits and what comes next."
 | New couple not under New since yesterday after the run | The run is not finished (Data & ML health shows the latest run) or it failed: show `app_today.jpg` and say the couple appears after the run; check Airflow after the talk. |
 | Projector too narrow (horizontal scroll) | Browser zoom 90 %. |
 
+Q&A, error handling: "Has it ever failed for real?" Yes, on 17 Nov a typo in one Silver SQL file broke a count; reconciliation rule C01 stopped runs 9–11 (including the scheduled Airflow run 10) before anything was published, so the dashboards kept the previous correct data and alerts were recorded. After the fix, run 12 succeeded (PLAN.md progress log, "Incident"; Data & ML health → Pipeline runs).
+
 ## 6. Pre-flight checklist
 
 - [ ] Mac on power, `caffeinate` running, Focus mode on, other apps closed.
