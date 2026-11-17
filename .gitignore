@@ -32,3 +32,8 @@ lake/
 var/
 app/web/node_modules/
 app/web/dist/
+
+# course material (lecture PDFs, course outline) is never published
+source/
+# the team's own Rev 13 report is published; every other .docx stays local
+!docs/v2/deliverables/Wedding_Organizer_Capstone_Rev13.docx
