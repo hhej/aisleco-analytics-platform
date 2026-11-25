@@ -39,7 +39,7 @@ Sources 1–3 and 4b are produced by the simulator (Spec 06) in exactly the form
 |---|---|
 | Customer, CustomerContact, CustomerChannelAccount, MarketingChannel, Package, EmployeeRole, Employee, EmployeeContract | Inquiry, ChatMessage, Event, EventEmployeeAssignment, SalesActivity |
 
-The full data dictionary and the ER diagram are generated in M1 (`sources/crm/oltp_v6.sql`, `sources/crm/oltp_v6_dbdiagram.sql`).
+The DDL is `sources/crm/oltp_v6.sql` (it imports into dbdiagram.io as is); the ER diagram is `docs/v2/deliverables/report_figures/fig_er_oltp_v6.png`.
 
 ### 2.2 Ingestion method, table by table
 

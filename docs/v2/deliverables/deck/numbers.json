@@ -1,0 +1,226 @@
+{
+  "asof": "2026-11-25",
+  "asof_text": "25 Nov 2026",
+  "p1": {
+    "year": 2025,
+    "weddings": 104,
+    "peak_share_pct": 62,
+    "util_max_pct": 133,
+    "util_max_month": "2025-11",
+    "util_min_pct": 35,
+    "util_min_month": "2025-07",
+    "person_weeks_over": 159,
+    "overtime_hours": 2320
+  },
+  "lost": {
+    "Budget changed": {
+      "couples": 155,
+      "fee_m": 0.85
+    },
+    "Chose competitor": {
+      "couples": 136,
+      "fee_m": 0.56
+    },
+    "Date unavailable": {
+      "couples": 93,
+      "fee_m": 2.46
+    },
+    "No reply": {
+      "couples": 692,
+      "fee_m": 1.83
+    },
+    "Price": {
+      "couples": 102,
+      "fee_m": 2.67
+    },
+    "Scope mismatch": {
+      "couples": 161,
+      "fee_m": 0.53
+    }
+  },
+  "median_fee": 90000,
+  "quote_to_booking_pct": 29,
+  "no_reply_quoted": 69,
+  "at_stake_total_m": 4.3,
+  "p2": {
+    "from": "Nov 2025",
+    "to": "Oct 2026",
+    "inquiries": 1457,
+    "consulted": 366,
+    "quoted": 344,
+    "booked": 104,
+    "still_open": 59,
+    "conv_min_pct": 7.0,
+    "conv_max_pct": 8.8,
+    "conv_years": "2023–2026",
+    "open_today": 113
+  },
+  "reply": {
+    "month": "October 2026",
+    "median_hours": 2.1
+  },
+  "staff": {
+    "Wedding day": 5,
+    "Planning": 5,
+    "Office": 2,
+    "Sales": 3
+  },
+  "forecast": {
+    "freelance_hours_12w": 503,
+    "over_role_weeks_12w": 17,
+    "over_until": "8 Feb 2027",
+    "over_from": "30 Nov",
+    "wape_model": 0.092,
+    "wape_pickup": 0.124,
+    "wape_booked": 0.249,
+    "wape_naive": 0.336,
+    "coverage_pct": 78
+  },
+  "capacity": {
+    "peak_util_4w_pct": 170,
+    "person_weeks_over_4w": 33
+  },
+  "model": {
+    "version": "6",
+    "test_window": "2026-03-22 to 2026-09-17",
+    "test_rows": 23293,
+    "base_rate_pct": 7,
+    "pr_auc": 0.373,
+    "pr_auc_ci": [
+      0.2605,
+      0.4962
+    ],
+    "roc_auc": 0.866,
+    "ece": 0.009,
+    "gain_vs_practice": 0.2404,
+    "gain_vs_practice_ci": [
+      0.1532,
+      0.3377
+    ],
+    "gain_vs_rule": 0.0635,
+    "gain_vs_rule_ci": [
+      -0.0063,
+      0.1381
+    ],
+    "captured_pct": {
+      "Our model": 74,
+      "Stage rule": 67,
+      "Channel × stage rate": 64,
+      "Today: newest first": 48,
+      "Logistic regression": 74
+    },
+    "precision5_pct": 39,
+    "precision5_today_pct": 17,
+    "baselines": {
+      "B1 stage rule": {
+        "pr_auc": 0.309,
+        "roc_auc": 0.816,
+        "captured_pct": 67
+      },
+      "B3 logistic regression": {
+        "pr_auc": 0.395,
+        "roc_auc": 0.87,
+        "captured_pct": 74
+      },
+      "B0 newest message first": {
+        "pr_auc": 0.136,
+        "roc_auc": 0.712,
+        "captured_pct": 48
+      },
+      "B2 channel x stage rate": {
+        "pr_auc": 0.239,
+        "roc_auc": 0.801,
+        "captured_pct": 64
+      }
+    },
+    "ablation": [
+      {
+        "group": "profile",
+        "gain": null
+      },
+      {
+        "group": "engagement",
+        "gain": 0.107
+      },
+      {
+        "group": "stage",
+        "gain": 0.082
+      },
+      {
+        "group": "text_rules",
+        "gain": 0.074
+      },
+      {
+        "group": "sales_activity",
+        "gain": 0.005
+      },
+      {
+        "group": "capacity",
+        "gain": 0.003
+      }
+    ]
+  },
+  "gate": [
+    {
+      "version": "1",
+      "status": "rejected",
+      "asof": "2026-11-16",
+      "decision": "PR-AUC gain over B3 logistic regression not significant (95 % CI [0.0, 0.0])"
+    },
+    {
+      "version": "2",
+      "status": "rejected",
+      "asof": "2026-11-16",
+      "decision": "PR-AUC gain over B1 stage rule not significant (95 % CI [-0.0626, 0.1632])"
+    },
+    {
+      "version": "3",
+      "status": "rejected",
+      "asof": "2026-11-16",
+      "decision": "may be worse than B1 stage rule by more than 0.05 (95 % CI [-0.0966, 0.125])"
+    },
+    {
+      "version": "4",
+      "status": "retired",
+      "asof": "2026-11-16",
+      "decision": "PR-AUC 0.362: vs today's practice +0.228 (CI [0.1451, 0.3146]), vs B1 stage rule +0.051 (CI [-0.0095, 0.1182]), ECE 0.011, 49 features | retired: trained on mis-normalised budget bands (1M-1.5M and 1.5M+ read as unknown); fixed in Silver 30_inquiry.sql"
+    },
+    {
+      "version": "5",
+      "status": "rejected",
+      "asof": "2026-11-15",
+      "decision": "kept champion v4: fewer than 50 unseen test inquiries to compare"
+    },
+    {
+      "version": "6",
+      "status": "champion",
+      "asof": "2026-11-17",
+      "decision": "PR-AUC 0.373: vs today's practice +0.240 (CI [0.1532, 0.3377]), vs B1 stage rule +0.064 (CI [-0.0063, 0.1381]), ECE 0.009, 49 features"
+    },
+    {
+      "version": "7",
+      "status": "rejected",
+      "asof": "2026-11-22",
+      "decision": "below champion v6 on 141 unseen inquiries"
+    }
+  ],
+  "dq": {
+    "rules_defined": 39,
+    "rules": 37,
+    "caught": {
+      "R41": 1,
+      "R20": 58,
+      "R22": 778,
+      "R24": 38,
+      "S05": 1245,
+      "R30": 4,
+      "R31": 83,
+      "R33": 41,
+      "R11": 5
+    }
+  },
+  "last_run": {
+    "run_id": 21,
+    "seconds": 10.5
+  }
+}

@@ -5,6 +5,9 @@ Part of the [v2 plan](PLAN.md). Answers: where each zone is on disk, what format
 
 ## 1. Zones (Chapter 4 mapping)
 
+In Chapter 6 terms the lake side is **ELT** (raw data is loaded first, then transformed) and the warehouse side is **ETL**
+(transformed in Silver, then loaded into Gold).
+
 The design is the **zone-based architecture** of Chapter 4 (transient landing → raw → trusted → refined/restricted → sandbox),
 with the warehouse as the consumption layer. Medallion names are used because they are short.
 
@@ -96,8 +99,8 @@ All SQL is in `pipeline/silver/sql/NN_<table>.sql` (DuckDB dialect), one file pe
 ### 4.2 `channel`, `package`, `employee_contract`
 - **in**: the latest snapshot of MarketingChannel; Package; Employee + EmployeeContract + EmployeeRole.
 - **grain**: channel; package price version; employee contract version.
-- **steps**: type casting; trimming; code-and-description pairs kept (Ch.5); `package_family` = package name without the
-  price version; contract rows joined to the employee's name and the role name; contracts checked for overlap (rule R13).
+- **steps**: type casting; trimming; code-and-description pairs kept (Ch.5); `package_family` = the trimmed package name
+  (package names carry no price version today); contract rows joined to the employee's name and the role name; contracts checked for overlap (rule R13).
 - **out (employee_contract)**: `contract_id, employee_id, employee_code, nickname, role_name, role_group, employment_type,
   standard_weekly_hours, max_concurrent_events, effective_from, effective_to (null = open), hire_date, status`.
 
@@ -190,6 +193,9 @@ Rules are data (`pipeline/quality/rules.yml`, loaded into `etl.dq_rule`), not hi
 `etl.dq_result` (run, rule, rows checked, rows failed). Severities:
 **reject** (row to quarantine, not loaded), **warn** (logged, row loaded; an unknown key becomes the −1 member),
 **block** (the run stops before Gold; nothing published), **info** (counted).
+
+39 rules are defined; 37 are checked on every run. S02 (a master snapshot shrank by more than 20 %) and C04 (Silver keys differ
+from the CRM's key list) are defined but have no check yet; deletes are caught today by the primary-key list at ingestion.
 
 | ID | Source / table | Rule | Severity |
 |---|---|---|---|
