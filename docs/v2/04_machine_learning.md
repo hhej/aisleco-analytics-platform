@@ -52,9 +52,10 @@ training and serving).
 | Object | What it is |
 |---|---|
 | `feature.registry` | one row per feature: name, group, type, description, formula, source columns, owner, version, added on |
-| `feature.lead_features(ids, cutoffs)` | SQL function: features of each inquiry as of each cut-off, using only rows with timestamps before the cut-off (v1's point-in-time function, extended) |
-| `feature.lead_features_daily` | offline store: one row per open inquiry per score date (what was served; training reads history from here and from the function) |
-| `feature.v_lead_features_latest` | online view: today's rows, read by the scoring step |
+| `ml/sql/lead_features.sql` | the one feature definition: features of each inquiry as of each cut-off, using only rows with timestamps before the cut-off; training and scoring both run it |
+| `feature.lead_features_daily` | offline store: the features actually served, one row per open inquiry per score date |
+
+There is no online store: scoring is a nightly batch, which Chapter 7 allows ("part of a batch prediction system").
 
 Feature groups (all as of cut-off *T*; about 45 features):
 
@@ -154,7 +155,8 @@ logistic regression by more than 0.005 (ties go to the simpler model); the B3 te
 
 ### 7. Serving: the daily list
 
-1. After the pipeline, `ml_score` loads `models:/lead_conversion@champion` from MLflow and scores `feature.v_lead_features_latest`.
+1. After the pipeline, `ml_score` loads `models:/lead_conversion@champion` from MLflow, computes today's features with
+   `ml/sql/lead_features.sql`, stores them in `feature.lead_features_daily` and scores them.
 2. **Expected fee**: Full Planning = fee rate × budget midpoint; Partial and Day-of = package base price; unknown package =
    median fee of the last 12 months. Expected fee of the lead = probability × fee.
 3. **Rank** within each owner's list by expected fee (the page can switch to probability).
@@ -198,15 +200,17 @@ logistic regression by more than 0.005 (ties go to the simpler model); the B3 te
 |---|---|---|
 | Input drift: PSI per feature, today's scored rows vs the champion's test-period population (every open lead on every test day, the same kind of population as a scoring day), bins from the training deciles; calendar fields (month, weekday) excluded as seasonal | daily | PSI > 0.2 (watch at 0.1) |
 | Missing-as-a-feature: missing share per feature vs training | daily | +10 percentage points |
-| Edge cases: values outside the training range, rare combinations (e.g. quoted with no consultation) | daily | count above the 99th percentile of training days |
+| Edge cases: values outside the training range (a check for rare combinations, e.g. quoted with no consultation, is planned) | daily | reported as "watch"; no alert yet |
 | Score drift: PSI of today's calibrated scores against the champion's scores on the reference population (deciles) | daily | PSI > 0.2 |
-| Label drift: base rate of matured labels | weekly | ± 50 % relative |
-| Performance on matured labels (8-week rolling PR-AUC, precision@15, ECE), measured on **holdout** leads too, which the model did not influence | weekly | PR-AUC −20 % relative to its test value, or ECE > 0.08 |
+| Label drift: base rate of matured labels | daily, once labels mature | reported; a ± 50 % alert is planned |
+| Performance on matured labels (8-week rolling PR-AUC and ECE), measured on **holdout** leads too, which the model did not influence | daily, once labels mature | ECE > 0.08 (a PR-AUC −20 % alert is planned) |
 
 **Feedback loop** (Chapter 7): the list changes who gets called, which changes outcomes and the follow-up features. The holdout
-group gives unbiased data for monitoring; the report discusses the effect on retraining.
+group gives unbiased data for monitoring. The follow-up features (the `sales_activity` group) are now influenced by the
+list; they add only about +0.005 PR-AUC in cross-validation, so the next retrain drops the group.
 
-**Retraining (continuous training).** `aisleco_weekly_train`, Sunday 03:00, and on any performance alert: build the training
+**Retraining (continuous training).** `aisleco_weekly_train`, Sunday 03:00; the schedule is the trigger. Alerts go to
+`etl.alert` and the Data & ML health page, where a person decides on an extra run. Each run: build the training
 set → tune → calibrate → evaluate → gate → register in MLflow. Promotion moves the `champion` alias; the previous champion keeps
 the alias `previous` for one-step rollback (`python -m ml rollback`). Every run logs data version (pipeline run ID), code
 version (git commit), seed, parameters, metrics, plots and the decision.

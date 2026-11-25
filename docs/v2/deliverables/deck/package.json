@@ -1,0 +1,8 @@
+{
+  "name": "aisleco-deck",
+  "private": true,
+  "description": "Builds the final presentation and the presenter guide. Run: npm install && node build.js",
+  "dependencies": {
+    "pptxgenjs": "4.0.1"
+  }
+}

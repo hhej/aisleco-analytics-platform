@@ -52,8 +52,8 @@ version; the source ID otherwise). A key never changes once issued; reloading th
 ## 4. Facts
 
 ### 4.1 `FactInquiry`: accumulating snapshot, one row per inquiry
-The row is created when the inquiry arrives and updated as it moves through the stages (Chapter 5: an accumulating snapshot
-for a process with milestones).
+The row is created when the inquiry arrives and updated as it moves through the stages (an accumulating snapshot in Kimball's
+terms, from *The Data Warehouse Toolkit*, for a process with milestones; the Chapter 5 slides cover the grain and one fact table per process).
 
 | Column | Meaning | Rule |
 |---|---|---|

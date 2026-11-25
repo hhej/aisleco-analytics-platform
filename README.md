@@ -1,11 +1,11 @@
-# Aisle & Co. — an end-to-end analytics platform on one MacBook
+# Aisle & Co. — a self-hosted, open-source analytics platform
 
 **MADT 8102 Seminar in Advanced Analytics System Implementation (NIDA) · capstone project · v2, November 2026**
 
 Aisle & Co. is a (fictional) full-service wedding organizer in Bangkok: about 1,500 inquiries a year from LINE,
 Facebook, Instagram, TikTok, the website and wedding fairs, about 100 weddings a year, ten planners and crew.
-This repository is its complete analytics platform, built and running natively on a single MacBook (no cloud,
-no Docker):
+This repository is its complete analytics platform. Everything is open-source and self-hosted: it runs on one server
+(for development and the demo, a laptop), with no licence fees, and each part has a cloud equivalent if the business grows:
 
 - **four source systems**: a CRM database, a chat-webhook gateway, wedding-fair tablets and external calendars;
 - **a data lake**: landing, Bronze (raw), Silver (clean) and quarantine zones;
@@ -120,7 +120,7 @@ flowchart LR
 
 Orchestration is Airflow 2.10. `aisleco_daily` runs at 02:00 and does pipeline → scoring → monitoring → forecast;
 `aisleco_weekly_train` retrains on Sundays. Governance lives in the `etl` schema (run log, step checkpoints, watermarks,
-file checkpoints, 39 data-quality rules and their results, alerts) and in the [data catalog](docs/v2/catalog.html).
+file checkpoints, data-quality rules and their results, alerts) and in the [data catalog](docs/v2/catalog.html).
 
 ## Sources and ingestion
 
@@ -148,11 +148,12 @@ phone numbers, e-mails and LINE IDs masked; `customer_contact`). One DuckDB SQL 
   flags (asked the price, asked if a date is free, price objection, …).
 - **Buddhist Lent:** derived from the real Asalha Bucha dates in the holiday feed.
 
-**39 data-quality rules are data, not code** (`pipeline/quality/rules.yml` → `etl.dq_rule`). Each has a severity:
+**Data-quality rules are data, not code** (`pipeline/quality/rules.yml` → `etl.dq_rule`). Each has a severity:
 reject (to quarantine), warn, info or block (the run stops before anything is published). The simulator injects
 known problems on purpose, and each is caught: 58 malformed bodies (R20), 777 re-deliveries (R22), a truncated
 tablet file (R30), an invalid auspicious level (R41), a webhook schema change from 1 Sep 2026 (S05), orphan
-assignments (R10b), and others. See [Spec 02](docs/v2/02_data_lake.md).
+assignments (R10b), and others. 39 rules are defined and 37 are checked on every run; S02 and C04 are planned. See
+[Spec 02](docs/v2/02_data_lake.md).
 
 ## Data warehouse and marts
 
@@ -383,6 +384,7 @@ lake/, var/             data and logs created at run time (git-ignored)
 | [Model card](docs/v2/model_card_lead_conversion.md), [EDA](docs/v2/ml_eda.md), [text experiment](docs/v2/ml_text_experiment.md) | model evidence |
 | [End-to-end replay](docs/v2/e2e_replay.md), [benchmark](docs/v2/benchmark.md) | pipeline evidence |
 | [Demo runbook](docs/v2/DEMO_RUNBOOK.md) | minute-by-minute live demo with fallbacks |
+| [Presenter guide](docs/v2/deliverables/PRESENTER_GUIDE.md) | who presents what (5 presenters), Thai speaking scripts, Q&A bank; built with the deck by `docs/v2/deliverables/deck/build.js` |
 | [Slide deck](docs/v2/deliverables/AisleCo_Final_Presentation.pptx), [report Rev 13](docs/v2/deliverables/Wedding_Organizer_Capstone_Rev13.docx) | final presentation and written report |
 
 ## Course rubric → evidence

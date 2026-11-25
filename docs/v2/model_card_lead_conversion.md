@@ -85,7 +85,7 @@ Daily: PSI per feature against the test-period population, missing shares, value
 - Simulated data: the drivers are assumptions (Spec 06); the method, not the coefficients, carries over to a real CRM.
 - The CRM keeps only the latest quote and budget; edits after the cutoff would leak (none in the simulation; a Quote table fixes it).
 - Calibration plateaus (isotonic) give ties; the list breaks them by expected fee.
-- Feedback loop: the list changes who is called; the holdout keeps unbiased data for monitoring.
+- Feedback loop (Chapter 7): the list changes who is called, and the follow-up features now partly come from the list itself. They add about +0.005 PR-AUC in cross-validation, so the next retrain drops that group; the holdout keeps unbiased data for monitoring.
 
 ## Personal data
 

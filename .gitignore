@@ -31,6 +31,7 @@ archive/v1/data/sim/*
 lake/
 var/
 app/web/node_modules/
+docs/v2/deliverables/deck/node_modules/
 app/web/dist/
 
 # course material (lecture PDFs, course outline) is never published
