@@ -14,6 +14,8 @@ export AISLECO_MP_FORK=1                    # read by aisleco_mp_fork.pth in .ve
 export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN="${AIRFLOW_DB:-postgresql+psycopg2:///airflow}"
 export AIRFLOW__CORE__DEFAULT_TIMEZONE=Asia/Bangkok
 export AIRFLOW__WEBSERVER__DEFAULT_UI_TIMEZONE=Asia/Bangkok
+# REST API: basic auth for the web app's "Run now" (app/api/platform.py), session auth for the UI
+export AIRFLOW__API__AUTH_BACKENDS=airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session
 export PATH="$ROOT/.venv-airflow/bin:$PATH"
 export NO_PROXY="*"            # macOS: avoids a known fork crash in task processes
 export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES

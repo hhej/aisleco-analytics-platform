@@ -50,6 +50,9 @@ scripts/services.sh status              # expect five lines "up"
 `aisleco_daily`), and the status shows a run as of today. Check the grid at
 http://localhost:8080/dags/aisleco_daily/grid: the last run is green. Then skip to section 3.
 
+**Only if** the Sales list or Data health looks short of couples (CRM and warehouse out of step), resync in about 15 s:
+`.venv/bin/python -m pipeline run --asof $(date +%F) --full-refresh && .venv/bin/python -m ml daily --asof $(date +%F)`.
+
 **If the Mac slept (no run as of today):**
 - **Check first:** in Airflow, make sure no `aisleco_sim_day` or `aisleco_daily` run is already in progress. When the
   Mac wakes, Airflow starts the most recent missed run by itself; wait for it instead of starting a second copy.
@@ -80,7 +83,7 @@ rebuild anything on the day.
 |---|---|---|---|
 | Chrome, window 1 | http://127.0.0.1:8000 | `dev` (Data team) | Demo panel (sidebar) |
 | Chrome, window 1, tab 2 | click "Data catalog" in the sidebar (opens /catalog in a new tab) | (same session) | KPIs (42) section |
-| Chrome, window 1, tab 3 | http://localhost:8080/dags/aisleco_daily/grid | Airflow `admin` (password in `airflow/standalone_admin_password.txt`) | Grid view (only if someone asks to see the scheduler; the demo follows the run on the Demo panel) |
+| Chrome, window 1, tab 3 | http://localhost:8080/dags/aisleco_daily/grid | Airflow `admin` (password in `airflow/standalone_admin_password.txt`) | Grid view (only if someone asks to see the scheduler; the demo follows the run on the Demo panel). **Run now** appears here as a *manual* run |
 | Chrome, window 1, tab 4 | http://127.0.0.1:5050/#/models/lead_conversion | none | Versions list; close the "MLflow Assistant" side panel |
 | Chrome Incognito window | http://127.0.0.1:8000 | `nok` (sales manager: sees both salespeople's lists) | Today |
 | Safari window | http://127.0.0.1:8000 | `som` (Operations) | Capacity planner |
@@ -116,7 +119,7 @@ click shows the couple's own record at that stop.
 
 | | |
 |---|---|
-| Click | **Run now** (right card). Stay on this page; there is no need to switch to Airflow. The run number and seconds count up, each stop pulses while its step runs, the arrow into it moves, and the page selects each stop as the couple arrives (about 15–25 s). |
+| Click | **Run now** (right card). Stay on this page; there is no need to switch to Airflow. The run number and seconds count up, each stop pulses while its step runs, the arrow into it moves, and the page selects each stop as the couple arrives (about 20–30 s). It starts the same Airflow DAG (`aisleco_daily`) as the nightly run; its model steps (score, monitor, forecast) finish in the background about 40 s later. |
 | Say while it runs | "Raw zone: only the rows that changed, copied as they are. Trusted zone: cleaned and checked by the quality rules. Star schema: keys and facts. Marts: one view per role. These are the same steps that run every night at two." |
 | Then point at | The card **What each layer did to the data**: "6 แสน" typed → band 500k–1M → midpoint ฿750,000; ChannelID 1 → ChannelKey 1 · LINE OA; 2027-02-13 → DateKey 20270213; name and phone stay in the restricted zone. **Lead score** is amber: "Scored in tomorrow's 02:00 run". |
 | Say | "She is in the warehouse and on the sales page. She gets a score in tomorrow morning's run: the model only uses data from before midnight, so it never sees the future." |
