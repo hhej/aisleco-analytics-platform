@@ -25,10 +25,16 @@ start() {
   echo "$n started on port $(port $n) (log var/log/$n.log)"
 }
 
+tree() { local c; for c in $(pgrep -P "$1"); do echo "$c"; tree "$c"; done; }
+
 stop() {
-  local n=$1
+  local n=$1 all i
   [ -f "$RUN/$n.pid" ] || { echo "$n not running"; return; }
-  pkill -TERM -P "$(cat "$RUN/$n.pid")" 2>/dev/null; kill "$(cat "$RUN/$n.pid")" 2>/dev/null; rm -f "$RUN/$n.pid"; echo "$n stopped"
+  # the whole tree, collected before signalling: Airflow standalone's scheduler/triggerer otherwise outlive it (and keep the port)
+  all="$(cat "$RUN/$n.pid") $(tree "$(cat "$RUN/$n.pid")")"
+  kill -TERM $all 2>/dev/null
+  for i in $(seq 1 30); do kill -0 $all 2>/dev/null || break; sleep 1; done
+  rm -f "$RUN/$n.pid"; echo "$n stopped"
 }
 
 status() {
