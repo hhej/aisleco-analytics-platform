@@ -75,7 +75,7 @@ def dim_maps(c):
 
 
 def dim_of(col):
-    if not col.endswith("Key") or "Date" in col:
+    if not col.endswith(("Key", "_key")) or "date" in col.lower():
         return None                                  # date keys are natural (YYYYMMDD)
     return next((d for d in ("Channel", "Package", "Outcome") if d in col), "Employee")
 
@@ -85,7 +85,7 @@ def table_rows(c, maps, schema, table):
     cols = [d.name for d in cur.description]
     own_key = {"DimChannel": "ChannelKey", "DimPackage": "PackageKey", "DimEmployee": "EmployeeKey", "DimInquiryOutcome": "OutcomeKey"}.get(table)
     keep = [(i, c_) for i, c_ in enumerate(cols) if c_ != own_key]
-    return Counter(tuple(maps[dim_of(c_)].get(r[i], r[i]) if schema == "gold" and dim_of(c_) else r[i] for i, c_ in keep)
+    return Counter(tuple(maps[dim_of(c_)].get(r[i], r[i]) if dim_of(c_) else r[i] for i, c_ in keep)  # marts expose keys too
                    for r in cur.fetchall())
 
 

@@ -296,3 +296,21 @@ def test_orphans_of_a_rejected_event_load_once_the_event_is_fixed(cfg):
         q = c.execute("SELECT resolved_run_id FROM etl.rejected_row WHERE (target = 'event' AND record_key = %s) "
                       "OR (target = 'assignment' AND record_key = ANY(%s))", (str(ev), list(assignments))).fetchall()
         assert len(q) == len(assignments) + 1 and all(r["resolved_run_id"] == run_id for r in q)
+
+
+# (k) ---------------------------------------------------------------------------------------------------------------
+def test_simulated_day_written_after_a_midday_run_is_not_skipped(cfg):
+    """25 Nov 2026 incident: a live demo couple (stamped late in the day) and a run moved the watermark; at 01:00 the
+    simulator wrote the rest of that day with earlier times and the incremental read skipped them."""
+    with crm(cfg) as c, c.transaction():
+        c.execute("SET LOCAL aisleco.keep_updated_at = on")
+        c.execute('UPDATE transaction."Inquiry" SET "UpdatedAt" = %s WHERE "InquiryID" = (SELECT max("InquiryID") FROM transaction."Inquiry")',
+                  (f"{ASOF} 23:59:00",))
+    pipeline.run(cfg, ASOF)
+    sim(CRM, DW, LAKE, SIM, "backfill", "--to", str(ASOF))   # the simulated day ASOF, written after that run
+    with crm(cfg) as c:
+        assert val(c, 'SELECT count(*) FROM transaction."Inquiry" WHERE "InquiryDate"::date = %s', (ASOF,)) > 0
+    ref = reference(lake_from=LAKE)
+    pipeline.run(cfg, ASOF + timedelta(1))
+    pipeline.run(ref, ASOF + timedelta(1), "full")
+    assert no_differences(cfg, ref) == {}

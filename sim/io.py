@@ -32,6 +32,11 @@ def write_crm(conn, day):
     (session flag aisleco.keep_updated_at), so rows carry simulated time."""
     with conn.transaction():
         conn.execute("SET LOCAL aisleco.keep_updated_at = on")
+        # A real CRM stamps commit time, so no commit is older than one already in the table. Simulated time can be
+        # (a day written at 01:00 after a midday demo run): the incremental read would skip it, so lift it above the max.
+        # shortcut: a hard delete of a table's newest row lowers the floor below the watermark; also read etl.watermark if that bites.
+        floor = {t: conn.execute(f'SELECT max("UpdatedAt") FROM {tbl(t)}').fetchone()[0] for t in {e[1] for e in day.crm if e[0] != "delete"}}
+        stamp = lambda t, ts: floor[t] + timedelta(microseconds=1) if floor[t] and ts and ts <= floor[t] else ts
         inserts = {}
         for e in day.crm:
             if e[0] == "insert":
@@ -41,16 +46,16 @@ def write_crm(conn, day):
             # master-data updates first: a contract's end date must be written before its successor is inserted
             for _, t, key, changes, ts in (u for u in updates if u[1] in MASTER):
                 cur.execute(f"UPDATE {tbl(t)} SET " + ", ".join(f"{q(c)} = %s" for c in changes) + f', "UpdatedAt" = %s WHERE {q(KEY[t])} = %s',
-                            [*changes.values(), ts, key])
+                            [*changes.values(), stamp(t, ts), key])
             for t in ORDER:
                 rows = inserts.get(t)
                 if rows:
                     cols = list(rows[0])
                     cur.executemany(f"INSERT INTO {tbl(t)} ({', '.join(map(q, cols))}) VALUES ({', '.join(['%s'] * len(cols))})",
-                                    [[r[c] for c in cols] for r in rows])
+                                    [[stamp(t, r[c]) if c == "UpdatedAt" else r[c] for c in cols] for r in rows])
             for _, t, key, changes, ts in (u for u in updates if u[1] not in MASTER):
                 sets = ", ".join(f"{q(c)} = %s" for c in changes) + ', "UpdatedAt" = %s'
-                cur.execute(f"UPDATE {tbl(t)} SET {sets} WHERE {q(KEY[t])} = %s", [*changes.values(), ts, key])
+                cur.execute(f"UPDATE {tbl(t)} SET {sets} WHERE {q(KEY[t])} = %s", [*changes.values(), stamp(t, ts), key])
             for op, t, key, _, ts in (e for e in day.crm if e[0] == "delete"):
                 for child in ("ChatMessage", "SalesActivity"):
                     cur.execute(f'DELETE FROM {tbl(child)} WHERE "InquiryID" = %s', [key])
