@@ -30,6 +30,9 @@ today's data."
 - Leave the Mac plugged in and awake, so Airflow runs the simulated day at 01:00 and the nightly pipeline at 02:00:
   `caffeinate -dims &` (stop it after the talk).
 - If the Mac sleeps, nothing breaks; follow the "Mac slept" steps below in the morning.
+- Rehearsal couples stay in the data, like real ones. A messy rehearsal couple keeps rule R05 at "1 failed (warning)" on
+  the Data health page, and runs still succeed. That is honest; if asked, say it is a test couple whose budget nobody has
+  corrected in the CRM yet.
 
 **Morning, at least 60 minutes before.** All commands from the repository root:
 
@@ -77,7 +80,7 @@ rebuild anything on the day.
 |---|---|---|---|
 | Chrome, window 1 | http://127.0.0.1:8000 | `dev` (Data team) | Demo panel (sidebar) |
 | Chrome, window 1, tab 2 | click "Data catalog" in the sidebar (opens /catalog in a new tab) | (same session) | KPIs (42) section |
-| Chrome, window 1, tab 3 | http://localhost:8080/dags/aisleco_daily/grid | Airflow `admin` (password in `airflow/standalone_admin_password.txt`) | Grid view |
+| Chrome, window 1, tab 3 | http://localhost:8080/dags/aisleco_daily/grid | Airflow `admin` (password in `airflow/standalone_admin_password.txt`) | Grid view (only if someone asks to see the scheduler; the demo follows the run on the Demo panel) |
 | Chrome, window 1, tab 4 | http://127.0.0.1:5050/#/models/lead_conversion | none | Versions list; close the "MLflow Assistant" side panel |
 | Chrome Incognito window | http://127.0.0.1:8000 | `nok` (sales manager: sees both salespeople's lists) | Today |
 | Safari window | http://127.0.0.1:8000 | `som` (Operations) | Capacity planner |
@@ -96,23 +99,30 @@ decision each role makes."
 
 ### Step 1. A couple writes on LINE (0:45, clock 11:40–12:25)
 
+The Demo panel is now **Follow one couple**: a flow of nine stops (LINE chat → landing file → raw zone → trusted zone →
+star schema → marts → lead score, with the CRM as the second lane). Each stop lights up when the couple is there, and a
+click shows the couple's own record at that stop.
+
 | | |
 |---|---|
-| Click | Chrome window 1 (`dev`) → **Demo panel** → the message box already holds a Thai LINE message asking about Full Planning on 13 Feb 2027 for 300 guests → **Send**. |
-| Audience sees | "Accepted by the gateway at hh:mm:ss" and "Landed in: `lake/landing/chat/platform=line/received_date=<today>/hour=<HH>/events.jsonl`". |
-| Say | "This is exactly what LINE sends: a signed webhook. The receiver checked the signature and stored the raw body untouched; the CRM created the couple and the inquiry." |
-| Only if a question comes | Terminal: `tail -1 "lake/landing/chat/platform=line/received_date=$(date +%F)/hour=$(date +%H)/events.jsonl"` shows the raw body. |
+| Click | Chrome window 1 (`dev`) → **Demo panel**. The form already holds Full Planning, 13/02/2027, 300 guests, budget "6 แสน", and the Thai message built from them → **Send on LINE**. |
+| Audience sees | **LINE chat**, **Landing file** and **CRM database** turn wine with a tick. Click **Landing file**: the raw webhook JSON exactly as LINE sends it, and its file path in the lake. |
+| Say | "This is exactly what LINE sends: a signed webhook. The receiver checked the signature and stored the body untouched. At the same time the CRM recorded the inquiry: the package, the date, and the budget as she typed it." |
+| Point at | **Raw zone: chat** is amber, "Waits for the hour to close (hh:00)". Say: "Chat files are hourly batches; this one moves at the top of the hour. The CRM copy of the inquiry does not wait." |
+| Optional, if ahead of time | Budget → "ยังไม่แน่ใจ" → **Send on LINE** again: a second, messy couple appears as a chip "#… messy". Both ride the same run in step 2. |
 | Fallback | Backup A1 (1 of 2), picture 1. |
 
-### Step 2. The nightly run, now (1:00, clock 12:25–13:25)
+### Step 2. The nightly run, now, followed on screen (1:00, clock 12:25–13:25)
 
 | | |
 |---|---|
-| Click | Demo panel → **Run now** (right card): "Started via Airflow (manual__…)". Switch to the Airflow tab and refresh the grid; the run fills task by task (≈ 25 s for the pipeline, about a minute with the model tasks). |
-| Say while it runs | "Extract the changes, load the raw zone, clean into the trusted zone with the quality rules, load the star schema, build the marts, check the totals. Each square is a step with retries and a checkpoint." |
-| Then | Chrome Incognito (`nok`) → **Today** → refresh. Under **New since yesterday** the couple appears: LINE OA, "No reply yet · wrote <today>". |
+| Click | **Run now** (right card). Stay on this page; there is no need to switch to Airflow. The run number and seconds count up, each stop pulses while its step runs, the arrow into it moves, and the page selects each stop as the couple arrives (about 15–25 s). |
+| Say while it runs | "Raw zone: only the rows that changed, copied as they are. Trusted zone: cleaned and checked by the quality rules. Star schema: keys and facts. Marts: one view per role. These are the same steps that run every night at two." |
+| Then point at | The card **What each layer did to the data**: "6 แสน" typed → band 500k–1M → midpoint ฿750,000; ChannelID 1 → ChannelKey 1 · LINE OA; 2027-02-13 → DateKey 20270213; name and phone stay in the restricted zone. **Lead score** is amber: "Scored in tomorrow's 02:00 run". |
 | Say | "She is in the warehouse and on the sales page. She gets a score in tomorrow morning's run: the model only uses data from before midnight, so it never sees the future." |
-| Fallback | Backup A1 (1 of 2), pictures 2–3. If the run is still going after 60 s, go on to step 3 and come back to New since yesterday at the end of it. |
+| If you sent the messy couple | Click its chip. **Trusted zone** is amber, "Kept, flagged R05". Say: "The budget text can't be read as a band, so it becomes Unknown. The rule keeps the row, flags it, and counts it on the Data health page." |
+| Then | Chrome Incognito (`nok`) → **Today** → refresh. Under **New since yesterday** the couple appears: LINE OA, "No reply yet · wrote <today>". |
+| Fallback | If the run fails or is still going after 60 s, click **Yesterday's, scored #…**. It is the same page for yesterday's couple, and every stop is green, including the chat file and the lead score. Say: "This is yesterday's couple, who already went through the nightly run." Then use backup A1 (1 of 2), pictures 1–2. |
 
 ### Step 3. Sales: whom to contact first (1:00, clock 13:25–14:25)
 
@@ -157,10 +167,11 @@ Hand back to Member 2: "Back to what we recommend."
 | Symptom | Do this (keep talking, never debug on stage) |
 |---|---|
 | Send shows "the chat gateway is not running" | Show backup A1; after the talk: `scripts/services.sh start gateway`. |
-| Run now shows "Started via the command line" | Airflow was down; the pipeline still runs (log `var/log/demo_run.log`). Skip the Airflow view; use backup A1. |
+| Run now and Airflow is down | The page falls back to the command line by itself (log `var/log/demo_run.log`); the stops still light up. |
+| A stop says "Updating…" during the run | The trusted zone swaps its files at the end of its step; it clears on the next refresh (2 s). |
 | A page shows an error or spins | Refresh once. If it persists, show backup A1. After the talk: `scripts/services.sh stop web && scripts/services.sh start web`. |
 | A window says "not logged in" | The 8-hour sign-in expired: Sign out → sign in again (`aisleco2026`). |
-| New couple not under New since yesterday after the run | The run is not finished or failed: show backup A1 and say the couple appears after the run; check Airflow after the talk. |
+| The run fails or the couple does not reach Marts | Click **Yesterday's, scored #…** on the Demo panel and keep talking (step 2 fallback); check Airflow after the talk. |
 | Projector too narrow (horizontal scroll) | Browser zoom 90 %. |
 
 **Q&A, error handling: "Has it ever failed for real?"** Yes:

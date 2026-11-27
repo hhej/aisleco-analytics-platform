@@ -24,3 +24,8 @@
   .input { @apply rounded-lg border border-line bg-surface px-3 py-1.5 text-[14px] focus:border-wine-300 outline-none; }
   .label { @apply text-[12px] font-medium text-ink-3 uppercase tracking-wide; }
 }
+
+/* Demo page: data moving along an arrow */
+.flow-line { background: repeating-linear-gradient(90deg, #7A2E3B 0 6px, transparent 6px 10px); background-size: 10px 2px; animation: flow .5s linear infinite; }
+@keyframes flow { to { background-position: 10px 0; } }
+@media (prefers-reduced-motion: reduce) { .flow-line { animation: none; } }

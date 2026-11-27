@@ -377,7 +377,7 @@ class World:
     def sales_staff(self, d):
         return [self.emp[c]["id"] for c in C.SALES_CODES if c in self.emp and self.contract(c, d)]
 
-    def new_lead(self, day, t, true_ch, budget=None, pkg=None, req=None, guests=None, fair=False):
+    def new_lead(self, day, t, true_ch, budget=None, pkg=None, req=None, guests=None, fair=False, budget_text=None):
         rng = self.rng
         z = rng.gauss(C.READINESS[true_ch], 1)
         cid, iid = self.new_id("cust"), self.new_id("inq")
@@ -397,7 +397,7 @@ class World:
         self.leads[iid] = lead
         self.open.add(iid)
         day.crm.append(("insert", "Customer", dict(CustomerID=cid, District=None, Province=None, CreatedAt=t, UpdatedAt=t)))
-        budget_txt = rng.choice(C.BUDGET_FREE_TEXT[budget]) if rng.random() < .08 else budget
+        budget_txt = budget_text or (rng.choice(C.BUDGET_FREE_TEXT[budget]) if rng.random() < .08 else budget)
         pid = self.package_id(pkg, t.date()) if pkg else None
         day.crm.append(("insert", "Inquiry", dict(InquiryID=iid, CustomerID=cid, ChannelID=C.CH[recorded], IndicativePackageID=pid,
                         AssignedSalesEmployeeID=lead.owner, InquiryDate=t, RequestedEventDate=req, BudgetRange=budget_txt,

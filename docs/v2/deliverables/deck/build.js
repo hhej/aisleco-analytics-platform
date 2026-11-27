@@ -471,8 +471,8 @@ pres.addSection({ title: "Main" });
 {
   const s = content("Live demo", "Live demo: one couple, from LINE to decision");
   sub(s, "Follow one new couple through the whole platform. About 5 minutes.");
-  const d = [["0:45", "A couple writes on LINE", "Demo panel: a signed webhook reaches the receiver, the raw message lands in the lake, the CRM creates the inquiry"],
-             ["1:00", "The nightly run, now", "Airflow runs the pipeline step by step: extract, trusted zone, star schema, marts, checks"],
+  const d = [["0:45", "A couple writes on LINE", "A signed webhook lands as a raw file; the CRM records the inquiry. Each stop of the flow lights up"],
+             ["1:00", "The nightly run, now", "Watch the couple move: raw zone, trusted zone (quality rules), star schema, marts, and what each layer changed"],
              ["1:00", "Sales · Today", "The couple appears as new; the ranked list with reasons; Mark contacted writes back to the CRM"],
              ["1:00", "Operations · Capacity", "An overloaded week and its weddings; can we take 13 Feb 2027? Dates with room"],
              ["0:30", "Owner · Overview", "What changed, in plain sentences"],
@@ -549,7 +549,7 @@ pres.addSection({ title: "Main" });
 // ================= BACKUP =================
 pres.addSection({ title: "Backup" });
 // A1 demo fallback (two slides)
-[[["app_demo_panel.jpg", "1 · Demo panel: send a LINE message"], ["airflow_daily.jpg", "2 · Airflow: the nightly run"], ["app_today.jpg", "3 · Sales: today's list"], ["app_today_may_mark.jpg", "3 · Sales: mark contacted"]],
+[[["app_demo_panel.jpg", "1 · A couple writes on LINE"], ["app_demo_flow.jpg", "2 · The run: the couple at every layer"], ["app_today.jpg", "3 · Sales: today's list"], ["app_today_may_mark.jpg", "3 · Sales: mark contacted"]],
  [["app_capacity_drawer.jpg", "4 · Operations: an overloaded week"], ["app_date_checker.jpg", "4 · Date checker: dates with room"], ["app_overview.jpg", "5 · Owner: what changed"],
   ["catalog_lineage.jpg", "6 · Proof: KPI lineage"], ["mlflow_registry.jpg", "6 · Proof: model registry"], ["app_health.jpg", "6 · Proof: nightly run health"]]]
   .forEach((shots, k) => {

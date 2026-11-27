@@ -132,15 +132,16 @@ def run(to, ranker=list_ranker):
     print(f"simulated {n} days to {w.last_day} in {_time.time() - t0:.0f}s")
 
 
-def live_message(text, nick=None):
+def live_message(text, nick=None, pkg=None, req=None, guests=None, budget=None, budget_text=None):
     """Live demo: a new couple writes to the LINE OA *now* (real clock). The CRM gets the customer, account, inquiry
-    and message row as its chat module would, and the signed webhook goes to the gateway. Returns what was created."""
+    and message row as its chat module would, and the signed webhook goes to the gateway. Returns what was created.
+    pkg / req / guests / budget / budget_text: what the chat module records from the message (random when None)."""
     from datetime import datetime
     w = pickle.loads(STATE.read_bytes())
     now = datetime.now().replace(microsecond=0)
     day = __import__("sim.engine", fromlist=["Day"]).Day()
     w.today = now.date()
-    lead, _ = w.new_lead(day, now, "LINE OA")
+    lead, _ = w.new_lead(day, now, "LINE OA", budget=budget, pkg=pkg, req=req, guests=guests, budget_text=budget_text)
     if nick:
         lead.nick = nick
     w.open_account(day, lead, "line", now)

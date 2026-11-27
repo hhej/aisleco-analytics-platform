@@ -145,8 +145,18 @@ science content lives, out of the business pages.
 
 ### 3.6 Demo panel (data role only)
 
-For the live demo: "Send a LINE message as a new couple" (form → signed POST to the gateway → appears in Bronze within a second),
-"Run the pipeline now" (triggers the Airflow DAG through its REST API, shows step progress), "Advance the simulation one day".
+"Follow one couple", for the live demo (rewritten 25 Nov 2026: the first version showed step names, not the data).
+- **Send on LINE.** A form (package, wedding date, guests, budget as typed, including a messy "ยังไม่แน่ใจ" that rule R05
+  flags) builds the Thai message. The CRM's chat module records those fields, and a signed webhook goes to the gateway.
+- **Run now.** Triggers the Airflow DAG through its REST API (or the CLI if Airflow is down).
+- **The flow.** Nine stops: LINE chat → landing file → raw zone (chat) and CRM → raw zone (CRM) → trusted zone → star
+  schema → marts → lead score. `GET /api/demo/trace?inquiry_id=` looks the couple up at each stop (CRM tables, the hourly
+  chat file, the Bronze CSV, the Silver Parquet, `gold."FactInquiry"`, the Sales marts, `gold."FactLeadScore"`), plus the
+  latest run's steps.
+- **Statuses.** A stop shows here / running / waiting / flagged / failed; arrows move while the next step runs.
+- **Details.** A click shows the couple's record at that stop, with the fields that layer made highlighted. A side card
+  traces budget, channel, date and message across the layers.
+- **Fallback.** Any inquiry number can be traced; "Yesterday's, scored" picks a couple that has passed every stop.
 
 ## 4. Design rules
 

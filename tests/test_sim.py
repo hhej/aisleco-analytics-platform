@@ -40,3 +40,16 @@ def test_contract_history_has_no_overlap():
     for code, *_, contracts in STAFF:
         spans = sorted((c[4], c[5] or date.max) for c in contracts)
         assert all(a[1] < b[0] for a, b in zip(spans, spans[1:])), code
+
+
+def test_live_lead_records_what_the_couple_asked_for():
+    """The demo couple's CRM row carries the package, date and budget text from the demo form, not random ones."""
+    from datetime import datetime
+    from sim.engine import Day
+    w, _ = run(5)
+    t = datetime.combine(w.start + timedelta(5), datetime.min.time()).replace(hour=14)
+    w.today, day = t.date(), Day()
+    w.new_lead(day, t, "LINE OA", pkg="Full", req=date(2027, 2, 13), budget_text="ยังไม่แน่ใจ")
+    inq = next(p for op, tbl, p, *_ in day.crm if tbl == "Inquiry")
+    assert inq["RequestedEventDate"] == date(2027, 2, 13) and inq["BudgetRange"] == "ยังไม่แน่ใจ"
+    assert inq["IndicativePackageID"] == w.package_id("Full", t.date())

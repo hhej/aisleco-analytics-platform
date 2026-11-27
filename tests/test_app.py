@@ -56,6 +56,8 @@ def test_roles_get_403_elsewhere(client, user):
     if user != "may":
         assert client.post("/api/sales/activity", json={"inquiry_id": 1, "activity_type": "Call", "outcome": "Reached"}).status_code == 403
     assert client.post("/api/demo/run").status_code == 403
+    assert client.get("/api/demo/latest").status_code == 403
+    assert client.get("/api/demo/trace?inquiry_id=1").status_code == 403
 
 
 @pytest.mark.parametrize("role,sql", [
@@ -108,6 +110,26 @@ def test_data_health(client):
     login(client, "dev")
     d = client.get("/api/data/health").json()
     assert d["runs"] and d["steps"] and d["dq"] and "lead_scores" in d["models"]
+
+
+def test_demo_trace_follows_one_couple(client):
+    """Yesterday's scored couple is found at every stop; an unknown number is found nowhere, without an error."""
+    login(client, "dev")
+    scored = client.get("/api/demo/latest").json()["scored"]
+    t = client.get(f"/api/demo/trace?inquiry_id={scored}").json()
+    assert all(t[s]["found"] for s in ("crm", "raw_crm", "trusted", "star", "mart", "score")), t
+    assert t["star"]["row"]["InquiryID"] == scored and t["raw_crm"]["file"].startswith("lake/bronze/crm/Inquiry/")
+    assert t["run"]["steps"]
+    t = client.get("/api/demo/trace?inquiry_id=999999999").json()
+    assert not any(t[s]["found"] for s in ("crm", "chat", "raw_crm", "trusted", "star", "mart", "score"))
+    assert not any("error" in t[s] for s in ("crm", "chat", "raw_crm", "trusted", "star", "mart", "score"))
+
+
+@pytest.mark.parametrize("bad", [{"package": "Gold"}, {"budget": "2M"}, {"guests": 5}, {"requested_date": "2020-01-01"}])
+def test_demo_line_refuses_bad_fields(client, bad):
+    """Checked before anything reaches the CRM or the gateway."""
+    login(client, "dev")
+    assert client.post("/api/demo/line", json={"text": "hi", **bad}).status_code == 422
 
 
 def test_today_is_scoped_to_the_salesperson(client):
